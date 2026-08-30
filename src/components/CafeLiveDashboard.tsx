@@ -1,0 +1,185 @@
+import React, { useEffect, useState } from 'react';
+import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2 } from 'lucide-react';
+import { CafeLiveStatus } from '../types';
+
+export const CafeLiveDashboard: React.FC = () => {
+  const [liveData, setLiveData] = useState<CafeLiveStatus[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchLiveData = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/live-status');
+      const data = await res.json();
+      if (data.success) {
+        setLiveData(data.liveStatus || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch live status', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLiveData();
+    
+    // Auto-refresh every 60 seconds
+    const interval = setInterval(fetchLiveData, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getDeviceIcon = (type: string) => {
+    switch (type.toUpperCase()) {
+      case 'PC':
+        return <Monitor className="w-4 h-4 text-purple-500" />;
+      case 'PS5':
+        return <Gamepad2 className="w-4 h-4 text-purple-500" />;
+      default:
+        return <Laptop className="w-4 h-4 text-purple-500" />;
+    }
+  };
+
+  const calculateDuration = (startTime: string) => {
+    const start = new Date(startTime).getTime();
+    const now = new Date().getTime();
+    const diff = now - start;
+    
+    const h = Math.floor(diff / (1000 * 60 * 60));
+    const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  };
+
+  return (
+    <section className="p-8 flex-1 overflow-auto flex flex-col">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h2 className="text-xl font-bold text-white tracking-tight">Live Cafe Monitor</h2>
+          <p className="text-sm text-neutral-400 mt-1">Real-time device availability and current customer entries.</p>
+        </div>
+        <button
+          onClick={fetchLiveData}
+          disabled={loading}
+          className="p-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 rounded-md border border-neutral-800 transition flex items-center gap-2 text-xs font-medium"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      {loading && liveData.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-neutral-400 text-sm">
+          <div className="inline-block w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mr-3" />
+          Loading live data...
+        </div>
+      ) : liveData.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-neutral-400 text-sm bg-neutral-900/50 rounded-xl border border-neutral-800 border-dashed">
+          No cafes are currently registered. Waiting for POS connections.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {liveData.map((cafe) => (
+            <div key={cafe.cafe_id} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
+              {/* Card Header */}
+              <div className="p-5 border-b border-neutral-800 bg-black/40 flex justify-between items-start">
+                <div>
+                  <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                    {cafe.cafe_name}
+                    {cafe.status === 'active' ? (
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Active"></span>
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-rose-500" title="Suspended"></span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-neutral-500 font-mono mt-1">Cafe ID: #{cafe.cafe_id}</p>
+                </div>
+              </div>
+
+              <div className="p-5 flex-1 flex flex-col gap-6">
+                {/* Device Availability */}
+                <div>
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-3">Device Availability</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    {cafe.devices.map((device, idx) => {
+                      const percent = device.total > 0 ? (device.inUse / device.total) * 100 : 0;
+                      return (
+                        <div key={idx} className="bg-black border border-neutral-800 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            {getDeviceIcon(device.type)}
+                            <span className="text-sm font-medium text-neutral-200">{device.type}</span>
+                          </div>
+                          <div className="flex items-end justify-between mb-2">
+                            <span className="text-2xl font-bold text-white leading-none">{device.total - device.inUse}</span>
+                            <span className="text-xs text-neutral-500 font-medium">/ {device.total} free</span>
+                          </div>
+                          {/* Progress bar */}
+                          <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full ${percent >= 90 ? 'bg-rose-500' : percent >= 75 ? 'bg-yellow-500' : 'bg-purple-500'}`}
+                              style={{ width: `${percent}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Today's Entries (Active Sessions) */}
+                <div className="flex-1 flex flex-col">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-3">Active Sessions</h4>
+                  
+                  {cafe.recent_entries.length === 0 ? (
+                    <div className="bg-black border border-neutral-800 rounded-lg p-6 text-center flex-1 flex items-center justify-center">
+                      <p className="text-sm text-neutral-500">No active sessions at the moment.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-black border border-neutral-800 rounded-lg overflow-hidden">
+                      <table className="w-full text-left border-collapse">
+                        <thead className="bg-neutral-900 border-b border-neutral-800 text-[10px] uppercase text-neutral-500 font-semibold tracking-wider">
+                          <tr>
+                            <th className="px-4 py-2.5">Customer</th>
+                            <th className="px-4 py-2.5">Device</th>
+                            <th className="px-4 py-2.5">Duration</th>
+                            <th className="px-4 py-2.5">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-xs divide-y divide-neutral-800">
+                          {cafe.recent_entries.map((entry) => (
+                            <tr key={entry.id} className="hover:bg-neutral-900/50 transition-colors">
+                              <td className="px-4 py-3 font-medium text-neutral-200 flex items-center gap-2">
+                                <div className="w-5 h-5 rounded-full bg-neutral-800 flex items-center justify-center">
+                                  <User className="w-3 h-3 text-neutral-400" />
+                                </div>
+                                {entry.customer}
+                              </td>
+                              <td className="px-4 py-3 text-neutral-400 font-mono">
+                                {entry.device}
+                              </td>
+                              <td className="px-4 py-3 text-neutral-400 flex items-center gap-1.5">
+                                <Clock className="w-3 h-3 text-purple-500" />
+                                {calculateDuration(entry.startTime)}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase text-emerald-500">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  Active
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};

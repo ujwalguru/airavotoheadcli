@@ -1,0 +1,6 @@
+{
+  "name": "Airavoto Head",
+  "description": "Super Admin panel for software owner to manage cafe licenses, API keys, activation statuses, and verify POS software connections.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
