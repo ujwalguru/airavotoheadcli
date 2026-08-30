@@ -24,7 +24,7 @@ import {
   getCafeById,
   createCafe,
   updateCafeStatus,
-  findCafeByIdAndApiKey, findCafeByApiKey,
+  findCafeByIdAndApiKey, findCafeByApiKey, syncCafeHeartbeat, getLiveStatus,
 } from './db.js';
 
 dotenv.config();
@@ -251,58 +251,7 @@ app.get('/api/admin/health', requireAdminAuth, async (_req: Request, res: Respon
 
 app.get('/api/admin/live-status', requireAdminAuth, async (_req: Request, res: Response): Promise<void> => {
   try {
-    const cafes = await getAllCafes();
-    
-    // Generate deterministic mock live data for each cafe
-    const liveStatus = cafes.map(cafe => {
-      // Use cafe ID to generate pseudo-random but stable counts for realism
-      const pcTotal = 10 + (cafe.id % 20);
-      const ps5Total = 2 + (cafe.id % 8);
-      const otherTotal = 1 + (cafe.id % 5);
-      
-      const hour = new Date().getHours();
-      // More usage in evening
-      const usageFactor = (hour >= 17 || hour <= 2) ? 0.8 : 0.3;
-      
-      const pcInUse = Math.floor(pcTotal * usageFactor * ((cafe.id % 5 + 5)/10));
-      const ps5InUse = Math.floor(ps5Total * usageFactor * ((cafe.id % 3 + 7)/10));
-      
-      const devices = [
-        { type: 'PC', total: pcTotal, inUse: pcInUse },
-        { type: 'PS5', total: ps5Total, inUse: ps5InUse },
-        { type: 'Other', total: otherTotal, inUse: 0 }
-      ];
-      
-      // Mock some recent entries
-      const recent_entries = [];
-      if (pcInUse > 0) {
-        recent_entries.push({
-          id: `entry-${cafe.id}-1`,
-          customer: `Walk-in #${100 + cafe.id}`,
-          device: `PC-0${(cafe.id % 5) + 1}`,
-          startTime: new Date(Date.now() - (15 * 60000) * (cafe.id % 4 + 1)).toISOString(),
-          status: 'active'
-        });
-      }
-      if (ps5InUse > 0) {
-        recent_entries.push({
-          id: `entry-${cafe.id}-2`,
-          customer: `Member #${8000 + cafe.id * 7}`,
-          device: `PS5-0${(cafe.id % 2) + 1}`,
-          startTime: new Date(Date.now() - (45 * 60000) * (cafe.id % 3 + 1)).toISOString(),
-          status: 'active'
-        });
-      }
-      
-      return {
-        cafe_id: cafe.id,
-        cafe_name: cafe.cafe_name,
-        status: cafe.status,
-        devices,
-        recent_entries
-      };
-    });
-
+    const liveStatus = await getLiveStatus();
     res.json({ success: true, liveStatus });
   } catch (err) {
     res.status(500).json({ error: 'Internal Server Error' });
@@ -693,13 +642,31 @@ app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (re
     
     // Sanitize or limit café text fields if needed (omitted full html stripping to keep it simple and preserve existing behavior, but we limit sizes elsewhere or rely on clean JSON).
     
-    directoryData[slug] = {
-      slug,
+    const normalizedSlug = slug.toLowerCase().replace(/\s+/g, '-');
+    const capturedAt = payload.capturedAt || new Date().toISOString();
+    const categories = payload.cafe?.categories || [];
+    
+    const publicMetadata = payload.cafe ? { ...payload.cafe } : {};
+    delete publicMetadata.name;
+    delete publicMetadata.categories;
+
+    // Persist to DB
+    const syncResult = await syncCafeHeartbeat(normalizedSlug, cafeName, categories, publicMetadata, payload.availability || [], capturedAt);
+
+    // Also update in-memory directory
+    directoryData[normalizedSlug] = {
+      slug: normalizedSlug,
       data: cleanPayload,
       lastUpdate: Date.now()
     };
 
-    res.status(200).json({ success: true, message: 'Heartbeat received' });
+    console.log(`Heartbeat processed for cafe: ${normalizedSlug} | Cafe Upsert: ${syncResult.cafeUpserted} | Heartbeat Upsert: ${syncResult.heartbeatUpserted}`);
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Heartbeat received',
+      cafe_id: normalizedSlug
+    });
   } catch (err) {
     console.error('Error processing heartbeat:', err);
     res.status(500).json({ success: false, message: 'Internal server error' });

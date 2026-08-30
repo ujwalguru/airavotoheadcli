@@ -7,5 +7,83 @@
     "api_key": "4c624ca92a39a970923efcc90d09a37c",
     "status": "active",
     "created_at": "2026-08-30T07:30:08.038Z"
+  },
+  {
+    "id": 2,
+    "slug": "ggcafe",
+    "cafe_name": "GG Cafe",
+    "categories": [
+      "gaming",
+      "cafe"
+    ],
+    "public_metadata": {
+      "id": "ggcafe",
+      "city": "Test City",
+      "state": "Test State",
+      "hours": "09:00-22:00",
+      "startingPrice": "100"
+    },
+    "owner_name": "Auto Registered",
+    "email": "auto@detected.pos",
+    "api_key": "a1514cef3aac5682656f1429388a7a5f",
+    "status": "active",
+    "created_at": "2026-08-30T09:55:52.165Z",
+    "updated_at": "2026-08-30T09:58:45.662Z"
+  },
+  {
+    "id": 3,
+    "slug": "test-cafe-1",
+    "cafe_name": "Test Cafe 1",
+    "categories": [
+      "gaming"
+    ],
+    "public_metadata": {
+      "id": "test-cafe-1"
+    },
+    "owner_name": "Auto Registered",
+    "email": "auto@detected.pos",
+    "api_key": "e6328e96815905bea024bee92c222faa",
+    "status": "active",
+    "created_at": "2026-08-30T09:57:04.659Z",
+    "updated_at": "2026-08-30T09:58:27.455Z"
+  },
+  {
+    "id": 4,
+    "slug": "test-cafe-with-key",
+    "cafe_name": "Test Cafe 1",
+    "categories": [
+      "gaming"
+    ],
+    "public_metadata": {
+      "id": "test-cafe-1"
+    },
+    "owner_name": "Auto Registered",
+    "email": "auto@detected.pos",
+    "api_key": "cd8267ddbe21af47491d8c8a77c89858",
+    "status": "active",
+    "created_at": "2026-08-30T09:57:04.701Z",
+    "updated_at": "2026-08-30T09:58:27.444Z"
+  },
+  {
+    "id": 5,
+    "slug": "ggcafe-test",
+    "cafe_name": "GG Cafe Test",
+    "categories": [
+      "gaming",
+      "cafe"
+    ],
+    "public_metadata": {
+      "id": "ggcafe-test",
+      "city": "Test City",
+      "state": "Test State",
+      "hours": "09:00-22:00",
+      "startingPrice": "100"
+    },
+    "owner_name": "Auto Registered",
+    "email": "auto@detected.pos",
+    "api_key": "9efa4d857a15adaba07eda302e05c422",
+    "status": "active",
+    "created_at": "2026-08-30T09:57:04.734Z",
+    "updated_at": "2026-08-30T09:58:27.480Z"
   }
 ]
