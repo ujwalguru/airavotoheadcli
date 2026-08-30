@@ -32,6 +32,12 @@ export interface Cafe {
   categories?: any[];
   public_metadata?: any;
   updated_at?: string;
+  configurations?: {
+    devices?: any[];
+    pricing?: any[];
+    happyHours?: any[];
+    happyHoursPricing?: any[];
+  };
 }
 
 // In-memory / file-based storage path for fallback mode
@@ -322,7 +328,6 @@ export async function createCafe(params: {
 
   cafes.push(newCafe);
   writeLocalCafes(cafes);
-    return { cafeUpserted: true, heartbeatUpserted: true };
   return newCafe;
 }
 
@@ -377,7 +382,7 @@ export async function syncCafeHeartbeat(
   capturedAt: string,
   configurations: any
 
-): Promise<void> {
+): Promise<{ cafeUpserted: boolean; heartbeatUpserted: boolean }> {
   if (usePostgres && pgPool) {
     const client = await pgPool.connect();
     try {
@@ -472,7 +477,6 @@ export async function syncCafeHeartbeat(
       }
 
       await client.query('COMMIT');
-      return { cafeUpserted: true, heartbeatUpserted: true };
       return { cafeUpserted: true, heartbeatUpserted: true };
     } catch (e) {
       await client.query('ROLLBACK');

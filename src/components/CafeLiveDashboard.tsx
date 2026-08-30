@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2 } from 'lucide-react';
 import { CafeLiveStatus } from '../types';
 
@@ -6,10 +6,14 @@ export const CafeLiveDashboard: React.FC = () => {
   const [liveData, setLiveData] = useState<CafeLiveStatus[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchLiveData = async () => {
+  const fetchLiveData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/live-status');
+      const token = localStorage.getItem('admin_token');
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch('/api/admin/live-status', { headers });
       const data = await res.json();
       if (data.success) {
         setLiveData(data.liveStatus || []);
@@ -19,15 +23,15 @@ export const CafeLiveDashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchLiveData();
-    
-    // Auto-refresh every 60 seconds
+
+    // Keep the monitor aligned with the POS heartbeat cadence.
     const interval = setInterval(fetchLiveData, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchLiveData]);
 
   const getDeviceIcon = (type: string) => {
     switch (type.toUpperCase()) {
@@ -38,6 +42,12 @@ export const CafeLiveDashboard: React.FC = () => {
       default:
         return <Laptop className="w-4 h-4 text-purple-500" />;
     }
+  };
+
+  const formatSyncedTime = (value?: string) => {
+    if (!value) return 'Not synced yet';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Invalid timestamp' : date.toLocaleString();
   };
 
   const calculateDuration = (startTime: string) => {
@@ -94,6 +104,7 @@ export const CafeLiveDashboard: React.FC = () => {
                     )}
                   </h3>
                   <p className="text-xs text-neutral-500 font-mono mt-1">Cafe ID: #{cafe.cafe_id}</p>
+                  <p className="text-[10px] text-neutral-600 mt-1">Last POS sync: {formatSyncedTime((cafe as CafeLiveStatus & { last_heartbeat?: string }).last_heartbeat)}</p>
                 </div>
               </div>
 
@@ -185,7 +196,7 @@ export const CafeLiveDashboard: React.FC = () => {
                         <h5 className="text-xs font-semibold text-neutral-400 mb-2">Device Configurations</h5>
                         <ul className="text-[10px] text-neutral-500 space-y-1">
                           {cafe.configurations.devices?.map((d: any, i: number) => (
-                            <li key={i}>{d.category} - {d.seat_name || d.name} ({d.status})</li>
+                            <li key={i}>{d.category} - {d.seat_name || d.seatName || d.name || 'Unnamed device'} ({d.status || (d.enabled ? 'enabled' : 'disabled')})</li>
                           ))}
                           {!cafe.configurations.devices?.length && <li>No device configs</li>}
                         </ul>
@@ -194,7 +205,7 @@ export const CafeLiveDashboard: React.FC = () => {
                         <h5 className="text-xs font-semibold text-neutral-400 mb-2">Regular Pricing</h5>
                         <ul className="text-[10px] text-neutral-500 space-y-1">
                           {cafe.configurations.pricing?.map((p: any, i: number) => (
-                            <li key={i}>{p.category}: {p.duration}min / {p.person_count}p = ${p.price}</li>
+                            <li key={i}>{p.category}: {p.duration}min / {p.person_count ?? p.personCount ?? 0}p = ${p.price}</li>
                           ))}
                           {!cafe.configurations.pricing?.length && <li>No pricing configs</li>}
                         </ul>
@@ -203,7 +214,7 @@ export const CafeLiveDashboard: React.FC = () => {
                         <h5 className="text-xs font-semibold text-neutral-400 mb-2">Happy Hours</h5>
                         <ul className="text-[10px] text-neutral-500 space-y-1">
                           {cafe.configurations.happyHours?.map((h: any, i: number) => (
-                            <li key={i}>{h.category} {h.start_time || h.startTime}-{h.end_time || h.endTime} ({h.enabled ? 'ON' : 'OFF'})</li>
+                            <li key={i}>{h.category}: {h.start_time || h.startTime}–{h.end_time || h.endTime} ({h.enabled ? 'ON' : 'OFF'})</li>
                           ))}
                           {!cafe.configurations.happyHours?.length && <li>No happy hour schedules</li>}
                         </ul>
@@ -212,7 +223,7 @@ export const CafeLiveDashboard: React.FC = () => {
                         <h5 className="text-xs font-semibold text-neutral-400 mb-2">Happy Hour Pricing</h5>
                         <ul className="text-[10px] text-neutral-500 space-y-1">
                           {cafe.configurations.happyHoursPricing?.map((hp: any, i: number) => (
-                            <li key={i}>{hp.category}: {hp.duration}min / {hp.person_count || hp.personCount}p = ${hp.price}</li>
+                            <li key={i}>{hp.category}: {hp.duration}min / {hp.person_count ?? hp.personCount ?? 0}p = ${hp.price}</li>
                           ))}
                           {!cafe.configurations.happyHoursPricing?.length && <li>No happy hour pricing</li>}
                         </ul>
