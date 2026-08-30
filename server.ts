@@ -37,6 +37,44 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const JWT_SECRET = process.env.JWT_SECRET || 'super_admin_secret_jwt_key_pos_license_987654';
 
+
+// ==========================================
+// CORS Middleware (Airavoto POS / Tauri Support)
+// ==========================================
+const ALLOWED_ORIGINS = [
+  'http://tauri.localhost',
+  'https://tauri.localhost',
+  'tauri://localhost',
+  'http://localhost:1420',
+  'http://localhost:5173',
+  'http://localhost:3000'
+];
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = req.headers.origin;
+
+  // For development, allow requests with no Origin header
+  if (!origin) {
+    return next();
+  }
+
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Api-Key');
+  res.setHeader('Vary', 'Origin');
+
+  // Handle preflight OPTIONS requests early before any auth middleware
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
+  next();
+});
+
 // --- System Logger (In-Memory) ---
 export interface SystemLog {
   id: number;
