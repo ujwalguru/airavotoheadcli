@@ -50,6 +50,18 @@ export const CafeLiveDashboard: React.FC = () => {
     return Number.isNaN(date.getTime()) ? 'Invalid timestamp' : date.toLocaleString();
   };
 
+  const getCafeDetails = (cafe: CafeLiveStatus) => cafe.cafe_details || {};
+
+  const getGalleryImages = (details: Record<string, any>) => {
+    const gallery = details.gallery || details.galleryImages || details.images || [];
+    return Array.isArray(gallery) ? gallery.filter((image) => typeof image === 'string' && image.trim()) : [];
+  };
+
+  const getAmenities = (details: Record<string, any>) => {
+    const amenities = details.amenities || details.facilities || [];
+    return Array.isArray(amenities) ? amenities : [];
+  };
+
   const calculateDuration = (startTime: string) => {
     const start = new Date(startTime).getTime();
     const now = new Date().getTime();
@@ -89,7 +101,7 @@ export const CafeLiveDashboard: React.FC = () => {
           No cafes are currently registered. Waiting for POS connections.
         </div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-6">
           {liveData.map((cafe) => (
             <div key={cafe.cafe_id} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
               {/* Card Header */}
@@ -109,10 +121,44 @@ export const CafeLiveDashboard: React.FC = () => {
               </div>
 
               <div className="p-5 flex-1 flex flex-col gap-6">
+                {(() => {
+                  const details = getCafeDetails(cafe);
+                  const gallery = getGalleryImages(details);
+                  const amenities = getAmenities(details);
+                  return (details.description || details.address || details.city || details.hours || amenities.length > 0 || gallery.length > 0) ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5">
+                      <div className="space-y-3">
+                        {(details.description || details.address || details.city || details.hours) && (
+                          <div className="bg-black border border-neutral-800 rounded-lg p-4">
+                            <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Cafe Details</h4>
+                            {details.description && <p className="text-sm text-neutral-300 mb-2">{details.description}</p>}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
+                              {details.address && <span>Address: {details.address}</span>}
+                              {(details.city || details.state) && <span>Location: {[details.city, details.state].filter(Boolean).join(', ')}</span>}
+                              {details.hours && <span>Hours: {details.hours}</span>}
+                            </div>
+                          </div>
+                        )}
+                        {amenities.length > 0 && (
+                          <div className="bg-black border border-neutral-800 rounded-lg p-4">
+                            <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Amenities</h4>
+                            <div className="flex flex-wrap gap-2">{amenities.map((amenity, index) => <span key={index} className="px-2 py-1 rounded bg-neutral-900 text-xs text-neutral-300">{typeof amenity === 'string' ? amenity : amenity.name || amenity.label || JSON.stringify(amenity)}</span>)}</div>
+                          </div>
+                        )}
+                      </div>
+                      {gallery.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Gallery</h4>
+                          <div className="grid grid-cols-2 gap-2">{gallery.map((image, index) => <img key={index} src={image} alt={`${cafe.cafe_name} gallery ${index + 1}`} className="w-full h-24 object-cover rounded-lg border border-neutral-800" loading="lazy" />)}</div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null;
+                })()}
                 {/* Device Availability */}
                 <div>
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-3">Device Availability</h4>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                     {cafe.devices.map((device, idx) => {
                       const percent = device.total > 0 ? (device.inUse / device.total) * 100 : 0;
                       return (
@@ -132,6 +178,12 @@ export const CafeLiveDashboard: React.FC = () => {
                               style={{ width: `${percent}%` }}
                             ></div>
                           </div>
+                          {(device.startTime || device.endTime || device.start_time || device.end_time) && (
+                            <p className="text-[10px] text-neutral-500 mt-2">Schedule: {device.startTime || device.start_time || '--'}–{device.endTime || device.end_time || '--'}</p>
+                          )}
+                          {Array.isArray(device.seats) && device.seats.length > 0 && (
+                            <div className="mt-2 space-y-1">{device.seats.map((seat: any, seatIndex: number) => <p key={seatIndex} className="text-[10px] text-neutral-500">{seat.name || seat.seatName || seat.id || `Seat ${seatIndex + 1}`}: {seat.status || (seat.available ? 'available' : 'in use')}</p>)}</div>
+                          )}
                         </div>
                       );
                     })}
@@ -147,7 +199,7 @@ export const CafeLiveDashboard: React.FC = () => {
                       <p className="text-sm text-neutral-500">No active sessions at the moment.</p>
                     </div>
                   ) : (
-                    <div className="bg-black border border-neutral-800 rounded-lg overflow-hidden">
+                    <div className="bg-black border border-neutral-800 rounded-lg overflow-x-auto">
                       <table className="w-full text-left border-collapse">
                         <thead className="bg-neutral-900 border-b border-neutral-800 text-[10px] uppercase text-neutral-500 font-semibold tracking-wider">
                           <tr>

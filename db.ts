@@ -32,6 +32,7 @@ export interface Cafe {
   categories?: any[];
   public_metadata?: any;
   updated_at?: string;
+  availability?: any[];
   configurations?: {
     devices?: any[];
     pricing?: any[];
@@ -535,9 +536,12 @@ export async function getLiveStatus(): Promise<any[]> {
       
       if (row.availability && Array.isArray(row.availability)) {
         devices = row.availability.map((a: any) => ({
-          type: a.category || 'PC',
-          total: a.total || 0,
-          inUse: (a.total || 0) - (a.available || 0)
+          ...a,
+          type: a.category || a.type || 'PC',
+          total: Number(a.total || 0),
+          available: Number(a.available || 0),
+          inUse: Math.max(0, Number(a.total || 0) - Number(a.available || 0)),
+          seats: a.seats || a.seatAvailability || []
         }));
       } else {
         // Fallback to mock for old cafes
@@ -560,6 +564,11 @@ export async function getLiveStatus(): Promise<any[]> {
         devices,
         recent_entries,
         last_heartbeat: row.captured_at,
+        availability: row.availability || [],
+        cafe_details: {
+          ...(row.public_metadata || {}),
+          categories: row.categories || []
+        },
         configurations: {
           devices: row.device_configs || [],
           pricing: row.pricing_configs || [],
@@ -591,6 +600,11 @@ export async function getLiveStatus(): Promise<any[]> {
       status: cafe.status,
       devices,
       recent_entries: [],
+      availability: cafe.availability || [],
+      cafe_details: {
+        ...(cafe.public_metadata || {}),
+        categories: cafe.categories || []
+      },
       configurations: cafe.configurations || { devices: [], pricing: [], happyHours: [], happyHoursPricing: [] }
     };
   });

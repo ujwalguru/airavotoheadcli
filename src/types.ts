@@ -60,6 +60,11 @@ export interface DeviceStat {
   type: string;
   total: number;
   inUse: number;
+  available?: number;
+  seats?: any[];
+  startTime?: string;
+  endTime?: string;
+  [key: string]: any;
 }
 
 export interface CafeEntry {
@@ -76,6 +81,9 @@ export interface CafeLiveStatus {
   status: 'active' | 'suspended';
   devices: DeviceStat[];
   recent_entries: CafeEntry[];
+  last_heartbeat?: string;
+  availability?: any[];
+  cafe_details?: Record<string, any>;
   configurations?: {
     devices: any[];
     pricing: any[];
