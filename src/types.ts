@@ -76,4 +76,10 @@ export interface CafeLiveStatus {
   status: 'active' | 'suspended';
   devices: DeviceStat[];
   recent_entries: CafeEntry[];
+  configurations?: {
+    devices: any[];
+    pricing: any[];
+    happyHours: any[];
+    happyHoursPricing: any[];
+  };
 }

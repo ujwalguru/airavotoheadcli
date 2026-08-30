@@ -651,7 +651,7 @@ app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (re
     delete publicMetadata.categories;
 
     // Persist to DB
-    const syncResult = await syncCafeHeartbeat(normalizedSlug, cafeName, categories, publicMetadata, payload.availability || [], capturedAt);
+    const syncResult = await syncCafeHeartbeat(normalizedSlug, cafeName, categories, publicMetadata, payload.availability || [], capturedAt, payload.configurations || null);
 
     // Also update in-memory directory
     directoryData[normalizedSlug] = {
@@ -669,7 +669,7 @@ app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (re
     });
   } catch (err) {
     console.error('Error processing heartbeat:', err);
-    res.status(500).json({ success: false, message: 'Internal server error' });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

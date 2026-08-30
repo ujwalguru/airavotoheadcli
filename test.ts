@@ -31,7 +31,7 @@ async function runTests() {
       availability: [{ category: 'Gaming', available: 5, total: 10 }]
     };
     let res = await sendHeartbeat(validData);
-    assert.strictEqual(res.status, 200, `Expected 200 OK, got ${res.status}`);
+    assert.strictEqual(res.status, 200, `Expected 200 OK, got ${res.status} ${await res.text()}`);
     
     // Verify persistence
     let getRes = await getDirectory('test-cafe-1');
@@ -142,7 +142,21 @@ async function runTests() {
       availability: [
         { category: "PC", available: 31, total: 31 },
         { category: "PS5", available: 21, total: 21 }
-      ]
+      ],
+      configurations: {
+        devices: [
+          { category: "PC", name: "PC Area", seatName: "PC-01", count: 1, status: "Active", startTime: "09:00", endTime: "22:00", enabled: true }
+        ],
+        pricing: [
+          { category: "PC", duration: 60, price: 10, personCount: 1 }
+        ],
+        happyHours: [
+          { category: "PC", startTime: "10:00", endTime: "14:00", enabled: true }
+        ],
+        happyHoursPricing: [
+          { category: "PC", duration: 60, price: 5, personCount: 1 }
+        ]
+      }
     };
     
     // First Upsert
@@ -151,11 +165,7 @@ async function runTests() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ggData)
     });
-    assert.strictEqual(ggRes.status, 200);
-    
-    // Check through getLiveStatus API
-    // Actually we can just hit /api/directory/ggcafe-test
-    // But to truly verify db we should import it or hit /api/admin/live-status (which needs auth)
+    assert.strictEqual(ggRes.status, 200, await ggRes.text());
     
     let adminAuth = await fetch(`${baseUrl}/api/admin/login`, {
       method: 'POST',
@@ -168,12 +178,18 @@ async function runTests() {
       headers: { 'Cookie': cookie || '' }
     });
     let liveData = await liveStatusRes.json();
-    if (!Array.isArray(liveData)) console.log('liveData:', liveData);
+    if (!liveData.success) {
+      console.log('liveData:', liveData);
+    }
     
     let dbCafe = liveData.liveStatus.find((c: any) => c.cafe_name === 'GG Cafe Test');
     assert.ok(dbCafe, 'Cafe GG Cafe Test should exist in db output');
-    // We expect devices to be mapped if Postgres, but locally we use mock mock devices.
-    // However, we can test that the name was persisted.
+    
+    // Check config data
+    assert.strictEqual(dbCafe.configurations.devices.length, 1);
+    assert.strictEqual(dbCafe.configurations.pricing.length, 1);
+    assert.strictEqual(dbCafe.configurations.happyHours.length, 1);
+    assert.strictEqual(dbCafe.configurations.happyHoursPricing.length, 1);
     
     // Second Upsert to ensure no duplicates
     let prevLength = liveData.liveStatus.length;
@@ -188,6 +204,12 @@ async function runTests() {
     });
     let liveData2 = await liveStatusRes2.json();
     assert.strictEqual(liveData2.liveStatus.length, prevLength, "No duplicate cafe rows should be created");
+
+    let dbCafe2 = liveData2.liveStatus.find((c: any) => c.cafe_name === 'GG Cafe Test');
+    assert.strictEqual(dbCafe2.configurations.devices.length, 1, "Duplicate device config created");
+    assert.strictEqual(dbCafe2.configurations.pricing.length, 1, "Duplicate pricing config created");
+    assert.strictEqual(dbCafe2.configurations.happyHours.length, 1, "Duplicate happy hours config created");
+    assert.strictEqual(dbCafe2.configurations.happyHoursPricing.length, 1, "Duplicate happy hours pricing config created");
 
     console.log('All tests passed successfully! 🎉');
 

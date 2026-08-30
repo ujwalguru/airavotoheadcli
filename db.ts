@@ -95,6 +95,64 @@ export async function initDatabase(): Promise<{cafeUpserted: boolean, heartbeatU
         );
       `);
 
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS cafe_device_configs (
+          id SERIAL PRIMARY KEY,
+          cafe_id VARCHAR(255),
+          category VARCHAR(255),
+          name VARCHAR(255),
+          seat_name VARCHAR(255),
+          count INTEGER,
+          status VARCHAR(255),
+          start_time VARCHAR(255),
+          end_time VARCHAR(255),
+          enabled BOOLEAN,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(cafe_id, category, seat_name)
+        );
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS cafe_pricing_configs (
+          id SERIAL PRIMARY KEY,
+          cafe_id VARCHAR(255),
+          category VARCHAR(255),
+          duration INTEGER,
+          price NUMERIC,
+          person_count INTEGER,
+          pricing_type VARCHAR(255),
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(cafe_id, category, duration, person_count)
+        );
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS cafe_happy_hours (
+          id SERIAL PRIMARY KEY,
+          cafe_id VARCHAR(255),
+          category VARCHAR(255),
+          start_time VARCHAR(255),
+          end_time VARCHAR(255),
+          enabled BOOLEAN,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(cafe_id, category)
+        );
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS cafe_happy_hours_pricing (
+          id SERIAL PRIMARY KEY,
+          cafe_id VARCHAR(255),
+          category VARCHAR(255),
+          duration INTEGER,
+          price NUMERIC,
+          person_count INTEGER,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(cafe_id, category, duration, person_count)
+        );
+      `);
+
+
       client.release();
       usePostgres = true;
       console.log('PostgreSQL database initialized and table verified.');
@@ -316,7 +374,9 @@ export async function syncCafeHeartbeat(
   categories: any[],
   publicMetadata: any,
   availability: any[],
-  capturedAt: string
+  capturedAt: string,
+  configurations: any
+
 ): Promise<void> {
   if (usePostgres && pgPool) {
     const client = await pgPool.connect();
@@ -347,7 +407,72 @@ export async function syncCafeHeartbeat(
         [slug, capturedAt || new Date().toISOString(), JSON.stringify(availability || [])]
       );
       
+      
+      // Process configurations
+      if (configurations) {
+        if (configurations.devices && Array.isArray(configurations.devices)) {
+          for (const d of configurations.devices) {
+            await client.query(
+              `INSERT INTO cafe_device_configs (cafe_id, category, name, seat_name, count, status, start_time, end_time, enabled)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+               ON CONFLICT (cafe_id, category, seat_name) DO UPDATE SET
+                 name = EXCLUDED.name,
+                 count = EXCLUDED.count,
+                 status = EXCLUDED.status,
+                 start_time = EXCLUDED.start_time,
+                 end_time = EXCLUDED.end_time,
+                 enabled = EXCLUDED.enabled,
+                 updated_at = CURRENT_TIMESTAMP`,
+              [slug, d.category, d.name, d.seatName, d.count, d.status, d.startTime, d.endTime, d.enabled]
+            );
+          }
+        }
+        
+        if (configurations.pricing && Array.isArray(configurations.pricing)) {
+          for (const p of configurations.pricing) {
+            await client.query(
+              `INSERT INTO cafe_pricing_configs (cafe_id, category, duration, price, person_count, pricing_type)
+               VALUES ($1, $2, $3, $4, $5, 'regular')
+               ON CONFLICT (cafe_id, category, duration, person_count) DO UPDATE SET
+                 price = EXCLUDED.price,
+                 pricing_type = EXCLUDED.pricing_type,
+                 updated_at = CURRENT_TIMESTAMP`,
+              [slug, p.category, p.duration, p.price, p.personCount]
+            );
+          }
+        }
+
+        if (configurations.happyHours && Array.isArray(configurations.happyHours)) {
+          for (const h of configurations.happyHours) {
+            await client.query(
+              `INSERT INTO cafe_happy_hours (cafe_id, category, start_time, end_time, enabled)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (cafe_id, category) DO UPDATE SET
+                 start_time = EXCLUDED.start_time,
+                 end_time = EXCLUDED.end_time,
+                 enabled = EXCLUDED.enabled,
+                 updated_at = CURRENT_TIMESTAMP`,
+              [slug, h.category, h.startTime, h.endTime, h.enabled]
+            );
+          }
+        }
+
+        if (configurations.happyHoursPricing && Array.isArray(configurations.happyHoursPricing)) {
+          for (const hp of configurations.happyHoursPricing) {
+            await client.query(
+              `INSERT INTO cafe_happy_hours_pricing (cafe_id, category, duration, price, person_count)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (cafe_id, category, duration, person_count) DO UPDATE SET
+                 price = EXCLUDED.price,
+                 updated_at = CURRENT_TIMESTAMP`,
+              [slug, hp.category, hp.duration, hp.price, hp.personCount]
+            );
+          }
+        }
+      }
+
       await client.query('COMMIT');
+      return { cafeUpserted: true, heartbeatUpserted: true };
       return { cafeUpserted: true, heartbeatUpserted: true };
     } catch (e) {
       await client.query('ROLLBACK');
@@ -380,7 +505,9 @@ export async function syncCafeHeartbeat(
       cafe.public_metadata = publicMetadata;
       cafe.updated_at = new Date().toISOString();
     }
+    cafe.configurations = configurations;
     writeLocalCafes(cafes);
+    return { cafeUpserted: true, heartbeatUpserted: true };
   }
 }
 
@@ -388,7 +515,11 @@ export async function syncCafeHeartbeat(
 export async function getLiveStatus(): Promise<any[]> {
   if (usePostgres && pgPool) {
     const res = await pgPool.query(`
-      SELECT c.*, h.availability, h.captured_at 
+      SELECT c.*, h.availability, h.captured_at,
+             (SELECT json_agg(row_to_json(cdc)) FROM cafe_device_configs cdc WHERE cdc.cafe_id = c.slug) as device_configs,
+             (SELECT json_agg(row_to_json(cpc)) FROM cafe_pricing_configs cpc WHERE cpc.cafe_id = c.slug) as pricing_configs,
+             (SELECT json_agg(row_to_json(chh)) FROM cafe_happy_hours chh WHERE chh.cafe_id = c.slug) as happy_hours,
+             (SELECT json_agg(row_to_json(chhp)) FROM cafe_happy_hours_pricing chhp WHERE chhp.cafe_id = c.slug) as happy_hours_pricing
       FROM cafes c
       LEFT JOIN heartbeats h ON c.slug = h.cafe_slug
       ORDER BY c.id DESC
@@ -424,7 +555,13 @@ export async function getLiveStatus(): Promise<any[]> {
         status: row.status,
         devices,
         recent_entries,
-        last_heartbeat: row.captured_at
+        last_heartbeat: row.captured_at,
+        configurations: {
+          devices: row.device_configs || [],
+          pricing: row.pricing_configs || [],
+          happyHours: row.happy_hours || [],
+          happyHoursPricing: row.happy_hours_pricing || []
+        }
       };
     });
   }
@@ -449,7 +586,8 @@ export async function getLiveStatus(): Promise<any[]> {
       cafe_name: cafe.cafe_name,
       status: cafe.status,
       devices,
-      recent_entries: []
+      recent_entries: [],
+      configurations: cafe.configurations || { devices: [], pricing: [], happyHours: [], happyHoursPricing: [] }
     };
   });
 }
