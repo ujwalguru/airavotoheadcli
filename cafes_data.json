@@ -1,0 +1,11 @@
+[
+  {
+    "id": 1,
+    "cafe_name": "Test Cafe",
+    "owner_name": "Auto Registered",
+    "email": "auto@detected.pos",
+    "api_key": "4c624ca92a39a970923efcc90d09a37c",
+    "status": "active",
+    "created_at": "2026-08-30T07:30:08.038Z"
+  }
+]

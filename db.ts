@@ -272,3 +272,13 @@ export async function updateCafeStatus(id: number, status: 'active' | 'suspended
   writeLocalCafes(cafes);
   return cafes[index];
 }
+
+export async function findCafeByApiKey(apiKey: string): Promise<Cafe | null> {
+  if (usePostgres && pgPool) {
+    const res = await pgPool.query('SELECT * FROM cafes WHERE api_key = $1', [apiKey]);
+    if (res.rows.length === 0) return null;
+    return res.rows[0];
+  }
+  const cafes = readLocalCafes();
+  return cafes.find((c: Cafe) => c.api_key === apiKey) || null;
+}
