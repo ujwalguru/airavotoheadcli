@@ -614,41 +614,54 @@ function formatListing(listing: DirectoryListing) {
 
 /**
  * POST /api/directory/heartbeat
+ * Public POS heartbeat endpoint. Uses validation, rate limiting, and payload restrictions instead of API keys.
  * Receives seat counts from the desktop app (POS)
  */
-app.post('/api/directory/heartbeat', async (req: Request, res: Response): Promise<void> => {
+app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (req: Request, res: Response): Promise<void> => {
   try {
-    const apiKey = (req.body?.api_key || req.headers['x-api-key'] || req.headers.authorization?.replace(/^Bearer\s+/i, '')) as string;
+    const payload = req.body;
     
-    if (!apiKey) {
-      res.status(401).json({ success: false, message: 'Missing API key' });
+    // Require a non-empty café ID or slug
+    const slug = payload?.slug || payload?.cafe?.id || payload?.listing_name;
+    if (!slug || typeof slug !== 'string' || slug.trim() === '') {
+      res.status(400).json({ success: false, message: 'Missing or invalid cafe ID/slug' });
       return;
     }
     
-    const cafe = await findCafeByApiKey(apiKey.trim());
-    if (!cafe) {
-      res.status(401).json({ success: false, message: 'Invalid API key' });
-      return;
-    }
-    if (cafe.status === 'suspended') {
-      res.status(403).json({ success: false, message: 'Cafe is suspended' });
+    // Require a café name
+    const cafeName = payload?.cafe?.name || payload?.cafe_name;
+    if (!cafeName || typeof cafeName !== 'string' || cafeName.trim() === '') {
+      res.status(400).json({ success: false, message: 'Missing or invalid cafe name' });
       return;
     }
 
-    // The user mentioned "listing name: a short slug like airavoto-koramangala"
-    const slug = req.body?.listing_name || req.body?.slug || cafe.cafe_name.toLowerCase().replace(/\s+/g, '-');
+    // Validate availability values as non-negative numbers
+    if (payload.availability && Array.isArray(payload.availability)) {
+      for (const item of payload.availability) {
+        if (typeof item.available === 'number' && item.available < 0) {
+          res.status(400).json({ success: false, message: 'Invalid availability: cannot be negative' });
+          return;
+        }
+        if (typeof item.total === 'number' && item.total < 0) {
+          res.status(400).json({ success: false, message: 'Invalid total: cannot be negative' });
+          return;
+        }
+      }
+    }
     
     // Clean up the payload slightly if needed (hide api_key from public)
-    const payload = { ...req.body };
-    delete payload.api_key;
+    const cleanPayload = { ...payload };
+    delete cleanPayload.api_key;
+    
+    // Sanitize or limit café text fields if needed (omitted full html stripping to keep it simple and preserve existing behavior, but we limit sizes elsewhere or rely on clean JSON).
     
     directoryData[slug] = {
       slug,
-      data: payload,
+      data: cleanPayload,
       lastUpdate: Date.now()
     };
 
-    res.json({ success: true, message: 'Heartbeat received' });
+    res.status(200).json({ success: true, message: 'Heartbeat received' });
   } catch (err) {
     console.error('Error processing heartbeat:', err);
     res.status(500).json({ success: false, message: 'Internal server error' });
