@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight } from 'lucide-react';
 import { CafeLiveStatus } from '../types';
 
 export const CafeLiveDashboard: React.FC = () => {
   const [liveData, setLiveData] = useState<CafeLiveStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCafe, setSelectedCafe] = useState<CafeLiveStatus | null>(null);
 
   const fetchLiveData = useCallback(async () => {
     setLoading(true);
@@ -84,6 +86,13 @@ export const CafeLiveDashboard: React.FC = () => {
     return [];
   };
 
+  const filteredCafes = liveData.filter((cafe) => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return true;
+    const details = getCafeDetails(cafe);
+    return [cafe.cafe_name, cafe.cafe_id, details.city, details.address, ...(details.categories || [])].some((value) => String(value ?? '').toLowerCase().includes(query));
+  });
+
   const calculateDuration = (startTime: string) => {
     const start = new Date(startTime).getTime();
     const now = new Date().getTime();
@@ -113,6 +122,11 @@ export const CafeLiveDashboard: React.FC = () => {
         </button>
       </div>
 
+      <div className="mb-6 relative max-w-xl">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+        <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search cafes by name, city, address, or ID..." className="w-full bg-neutral-900 border border-neutral-800 rounded-lg pl-10 pr-4 py-3 text-sm text-white placeholder:text-neutral-600 outline-none focus:border-purple-500" />
+      </div>
+
       {loading && liveData.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-neutral-400 text-sm">
           <div className="inline-block w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mr-3" />
@@ -123,8 +137,26 @@ export const CafeLiveDashboard: React.FC = () => {
           No cafes are currently registered. Waiting for POS connections.
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6">
-          {liveData.map((cafe) => (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
+            {filteredCafes.map((cafe) => {
+              const total = cafe.devices.reduce((sum, device) => sum + Number(device.total || 0), 0);
+              const inUse = cafe.devices.reduce((sum, device) => sum + Number(device.inUse || 0), 0);
+              const details = getCafeDetails(cafe);
+              return <button key={cafe.cafe_id} onClick={() => setSelectedCafe(cafe)} className="text-left bg-neutral-900 border border-neutral-800 hover:border-purple-500 rounded-xl p-4 transition group">
+                <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{cafe.cafe_name}</h3><p className="text-[11px] text-neutral-500 mt-1">Cafe ID: #{cafe.cafe_id}</p></div><ChevronRight className="w-4 h-4 text-neutral-600 group-hover:text-purple-400" /></div>
+                <div className="grid grid-cols-3 gap-2 mt-4 text-xs"><span className="text-neutral-400">Seats <strong className="block text-white text-base">{total}</strong></span><span className="text-neutral-400">In use <strong className="block text-rose-400 text-base">{inUse}</strong></span><span className="text-neutral-400">Status <strong className="block text-emerald-400 text-base">{cafe.status}</strong></span></div>
+                {(details.city || details.address) && <p className="text-[11px] text-neutral-500 mt-3 truncate">{[details.city, details.address].filter(Boolean).join(' · ')}</p>}
+              </button>;
+            })}
+          </div>
+          {filteredCafes.length === 0 && <div className="bg-neutral-900/50 border border-neutral-800 border-dashed rounded-xl p-8 text-center text-sm text-neutral-500">No cafes match “{searchQuery}”.</div>}
+          {selectedCafe ? (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm p-4 md:p-8 overflow-y-auto" onClick={() => setSelectedCafe(null)}>
+          <div className="max-w-6xl mx-auto bg-neutral-950 border border-neutral-800 rounded-2xl shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex justify-end p-3"><button onClick={() => setSelectedCafe(null)} className="p-2 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800" aria-label="Close cafe details"><X className="w-5 h-5" /></button></div>
+            <div className="px-4 pb-6 md:px-8">
+          {[selectedCafe].map((cafe) => (
             <div key={cafe.cafe_id} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
               {/* Card Header */}
               <div className="p-5 border-b border-neutral-800 bg-black/40 flex justify-between items-start">
@@ -361,7 +393,13 @@ export const CafeLiveDashboard: React.FC = () => {
               </div>
             </div>
           ))}
+            </div>
+          </div>
         </div>
+          ) : (
+            <div className="bg-neutral-900/50 border border-neutral-800 border-dashed rounded-xl p-10 text-center text-sm text-neutral-500">Select a cafe card to open its complete live details.</div>
+          )}
+        </>
       )}
     </section>
   );
