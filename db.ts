@@ -429,19 +429,27 @@ export async function syncCafeHeartbeat(
       if (configurations) {
         if (configurations.devices && Array.isArray(configurations.devices)) {
           for (const d of configurations.devices) {
-            await client.query(
-              `INSERT INTO cafe_device_configs (cafe_id, category, name, seat_name, count, status, start_time, end_time, enabled)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-               ON CONFLICT (cafe_id, category, seat_name) DO UPDATE SET
-                 name = EXCLUDED.name,
-                 count = EXCLUDED.count,
-                 status = EXCLUDED.status,
-                 start_time = EXCLUDED.start_time,
-                 end_time = EXCLUDED.end_time,
-                 enabled = EXCLUDED.enabled,
-                 updated_at = CURRENT_TIMESTAMP`,
-              [slug, d.category, d.name, d.seatName, d.count, d.status, d.startTime, d.endTime, d.enabled]
-            );
+            const nestedSeats = Array.isArray(d.seats) && d.seats.length > 0 ? d.seats : [d];
+            for (const seat of nestedSeats) {
+              const seatName = seat.seatName ?? seat.seat_name ?? seat.name ?? seat.id ?? d.seatName ?? d.seat_name ?? d.name ?? null;
+              const seatStatus = seat.status ?? (seat.available === true ? 'available' : seat.available === false ? 'in_use' : d.status);
+              const seatStart = seat.startTime ?? seat.start_time ?? d.startTime ?? d.start_time ?? null;
+              const seatEnd = seat.endTime ?? seat.end_time ?? d.endTime ?? d.end_time ?? null;
+              const seatEnabled = seat.enabled ?? d.enabled ?? true;
+              await client.query(
+                `INSERT INTO cafe_device_configs (cafe_id, category, name, seat_name, count, status, start_time, end_time, enabled)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 ON CONFLICT (cafe_id, category, seat_name) DO UPDATE SET
+                   name = EXCLUDED.name,
+                   count = EXCLUDED.count,
+                   status = EXCLUDED.status,
+                   start_time = EXCLUDED.start_time,
+                   end_time = EXCLUDED.end_time,
+                   enabled = EXCLUDED.enabled,
+                   updated_at = CURRENT_TIMESTAMP`,
+                [slug, d.category, seat.name ?? d.name ?? null, seatName, seat.count ?? d.count ?? 1, seatStatus, seatStart, seatEnd, seatEnabled]
+              );
+            }
           }
         }
         
@@ -581,7 +589,13 @@ export async function getLiveStatus(): Promise<any[]> {
           categories: row.categories || []
         },
         configurations: {
-          devices: row.device_configs || [],
+          devices: (row.device_configs || []).map((device: any) => ({
+            ...device,
+            seat_name: device.seat_name || device.name || `${device.category || 'Device'} seat`,
+            status: device.status || (device.enabled === false ? 'disabled' : 'available'),
+            start_time: device.start_time || null,
+            end_time: device.end_time || null
+          })),
           pricing: row.pricing_configs || [],
           happyHours: row.happy_hours || [],
           happyHoursPricing: row.happy_hours_pricing || []
