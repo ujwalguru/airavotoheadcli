@@ -60,6 +60,12 @@ export const CafeLiveDashboard: React.FC = () => {
 
   const getCafeDetails = (cafe: CafeLiveStatus) => cafe.cafe_details || {};
 
+  const normalizeSeatKey = (value: any) => {
+    const text = String(value ?? '').trim().toLowerCase();
+    const number = text.match(/(?:pc|ps5|seat|console)?\\s*[-_# ]*0*(\\d+)$/i)?.[1];
+    return number ? `seat-${number}` : text.replace(/[^a-z0-9]/g, '');
+  };
+
   const getGalleryImages = (details: Record<string, any>) => {
     const gallery = details.gallery || details.galleryImages || details.images || [];
     if (!Array.isArray(gallery)) return [];
@@ -213,7 +219,27 @@ export const CafeLiveDashboard: React.FC = () => {
                     })}
                   </div>
                   {(() => {
-                    const seatRows = cafe.devices.flatMap((device: any) => (Array.isArray(device.seats) && device.seats.length > 0 ? device.seats : []).map((seat: any, seatIndex: number) => ({ ...seat, category: device.type, key: `${device.type}-${seat.id || seat.name || seatIndex}` })));
+                    const mergedSeats = new Map<string, any>();
+                    cafe.devices.forEach((device: any) => {
+                      (Array.isArray(device.seats) ? device.seats : []).forEach((seat: any, seatIndex: number) => {
+                        const displayName = seat.name || seat.seatName || seat.seat_number || seat.id || `Seat ${seatIndex + 1}`;
+                        const key = `${String(device.type || 'device').toLowerCase()}-${normalizeSeatKey(displayName)}`;
+                        const previous = mergedSeats.get(key);
+                        const merged = previous ? {
+                          ...previous,
+                          ...seat,
+                          name: previous.name || displayName,
+                          status: seat.status && seat.status !== 'available' ? seat.status : previous.status || seat.status,
+                          available: seat.available === false ? false : previous.available,
+                          startTime: seat.startTime || seat.start_time || previous.startTime || previous.start_time,
+                          endTime: seat.endTime || seat.end_time || previous.endTime || previous.end_time,
+                          category: device.type,
+                          key,
+                        } : { ...seat, name: displayName, category: device.type, key };
+                        mergedSeats.set(key, merged);
+                      });
+                    });
+                    const seatRows = Array.from(mergedSeats.values());
                     return seatRows.length > 0 ? (
                       <div className="mt-4 overflow-x-auto bg-black border border-neutral-800 rounded-lg">
                         <table className="w-full text-left border-collapse min-w-[620px]">
