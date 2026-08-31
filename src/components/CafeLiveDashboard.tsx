@@ -50,6 +50,14 @@ export const CafeLiveDashboard: React.FC = () => {
     return Number.isNaN(date.getTime()) ? 'Invalid timestamp' : date.toLocaleString();
   };
 
+  const formatSeatTime = (value: any) => {
+    if (!value) return '—';
+    const text = String(value);
+    if (/^\\d{1,2}:\\d{2}/.test(text)) return text.slice(0, 5);
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? text : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   const getCafeDetails = (cafe: CafeLiveStatus) => cafe.cafe_details || {};
 
   const getGalleryImages = (details: Record<string, any>) => {
@@ -204,6 +212,31 @@ export const CafeLiveDashboard: React.FC = () => {
                       );
                     })}
                   </div>
+                  {(() => {
+                    const seatRows = cafe.devices.flatMap((device: any) => (Array.isArray(device.seats) && device.seats.length > 0 ? device.seats : []).map((seat: any, seatIndex: number) => ({ ...seat, category: device.type, key: `${device.type}-${seat.id || seat.name || seatIndex}` })));
+                    return seatRows.length > 0 ? (
+                      <div className="mt-4 overflow-x-auto bg-black border border-neutral-800 rounded-lg">
+                        <table className="w-full text-left border-collapse min-w-[620px]">
+                          <thead className="bg-neutral-900 border-b border-neutral-800 text-[10px] uppercase text-neutral-500 font-semibold tracking-wider">
+                            <tr><th className="px-4 py-2.5">Device</th><th className="px-4 py-2.5">Seat</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Start time</th><th className="px-4 py-2.5">End time</th></tr>
+                          </thead>
+                          <tbody className="text-xs divide-y divide-neutral-800">
+                            {seatRows.map((seat: any) => {
+                              const status = String(seat.status || (seat.available === false ? 'in_use' : 'available')).toLowerCase();
+                              const isAvailable = status === 'available' || status === 'free';
+                              return <tr key={seat.key}>
+                                <td className="px-4 py-3 text-neutral-400 font-mono">{seat.category}</td>
+                                <td className="px-4 py-3 font-medium text-white">{seat.name || seat.seatName || seat.seat_number || seat.id || 'Unnamed seat'}</td>
+                                <td className={`px-4 py-3 font-semibold ${isAvailable ? 'text-emerald-400' : status === 'scheduled' ? 'text-amber-400' : 'text-rose-400'}`}>{isAvailable ? 'Available' : status === 'scheduled' ? 'Scheduled' : 'In use'}</td>
+                                <td className="px-4 py-3 text-neutral-300 font-mono">{formatSeatTime(seat.startTime || seat.start_time)}</td>
+                                <td className="px-4 py-3 text-neutral-300 font-mono">{formatSeatTime(seat.endTime || seat.end_time)}</td>
+                              </tr>;
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
 
                 {/* Today's Entries (Active Sessions) */}
