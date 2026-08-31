@@ -86,6 +86,15 @@ export const CafeLiveDashboard: React.FC = () => {
     return [];
   };
 
+  const getGamePlatform = (game: any) => {
+    const explicit = game?.platform || game?.platformName || game?.deviceType || game?.device || game?.system;
+    if (explicit) return String(explicit);
+    const category = String(game?.category || '').toLowerCase();
+    if (category.includes('console') || category.includes('ps5') || category.includes('playstation')) return 'PS5';
+    if (category.includes('pc')) return 'PC';
+    return game?.category || 'Platform not specified';
+  };
+
   const filteredCafes = liveData.filter((cafe) => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
@@ -210,7 +219,7 @@ export const CafeLiveDashboard: React.FC = () => {
                       )}
                       {(games.length > 0 || foodItems.length > 0) && (
                         <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5">
-                          {games.length > 0 && <div className="bg-black border border-neutral-800 rounded-lg p-4"><h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Games</h4><div className="space-y-2">{games.map((game: any, index: number) => <div key={index} className="text-sm text-neutral-300">{typeof game === 'string' ? game : game.name || game.title || game.gameName || JSON.stringify(game)}</div>)}</div></div>}
+                          {games.length > 0 && <div className="bg-black border border-neutral-800 rounded-lg p-4"><h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Games by platform</h4><div className="space-y-2">{games.map((game: any, index: number) => { const name = typeof game === 'string' ? game : game.name || game.title || game.gameName || JSON.stringify(game); const platform = typeof game === 'string' ? 'Platform not specified' : getGamePlatform(game); return <div key={index} className="flex items-center justify-between gap-3 text-sm"><span className="text-neutral-300">{name}</span><span className="shrink-0 rounded-full border border-purple-500/40 bg-purple-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-purple-300">{platform}</span></div>; })}</div></div>}
                           {foodItems.length > 0 && <div className="bg-black border border-neutral-800 rounded-lg p-4"><h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Food Items</h4><div className="space-y-2">{foodItems.map((item: any, index: number) => <div key={index} className="flex justify-between gap-3 text-sm text-neutral-300"><span>{typeof item === 'string' ? item : item.name || item.title || item.itemName || JSON.stringify(item)}</span>{typeof item !== 'string' && item.price != null && <span className="text-purple-400">₹{item.price}</span>}</div>)}</div></div>}
                         </div>
                       )}
