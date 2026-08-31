@@ -428,6 +428,8 @@ export async function syncCafeHeartbeat(
       // Process configurations
       if (configurations) {
         if (configurations.devices && Array.isArray(configurations.devices)) {
+          // Replace the snapshot, rather than accumulating old/default rows.
+          await client.query('DELETE FROM cafe_device_configs WHERE cafe_id = $1', [slug]);
           for (const d of configurations.devices) {
             const nestedSeats = Array.isArray(d.seats) && d.seats.length > 0 ? d.seats : [d];
             for (const seat of nestedSeats) {
