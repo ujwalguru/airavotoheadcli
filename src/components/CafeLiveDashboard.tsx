@@ -54,12 +54,20 @@ export const CafeLiveDashboard: React.FC = () => {
 
   const getGalleryImages = (details: Record<string, any>) => {
     const gallery = details.gallery || details.galleryImages || details.images || [];
-    return Array.isArray(gallery) ? gallery.filter((image) => typeof image === 'string' && image.trim()) : [];
+    if (!Array.isArray(gallery)) return [];
+    return gallery.map((image) => typeof image === 'string' ? image : image?.imageUrl || image?.image_url || image?.url || '').filter((image) => typeof image === 'string' && image.trim());
   };
 
   const getAmenities = (details: Record<string, any>) => {
     const amenities = details.amenities || details.facilities || [];
     return Array.isArray(amenities) ? amenities : [];
+  };
+
+  const getCatalog = (details: Record<string, any>, keys: string[]) => {
+    for (const key of keys) {
+      if (Array.isArray(details[key])) return details[key];
+    }
+    return [];
   };
 
   const calculateDuration = (startTime: string) => {
@@ -125,7 +133,9 @@ export const CafeLiveDashboard: React.FC = () => {
                   const details = getCafeDetails(cafe);
                   const gallery = getGalleryImages(details);
                   const amenities = getAmenities(details);
-                  return (details.description || details.address || details.city || details.hours || amenities.length > 0 || gallery.length > 0) ? (
+                  const games = getCatalog(details, ['games', 'gameCatalog', 'game_catalog']);
+                  const foodItems = getCatalog(details, ['foodItems', 'food_items', 'menu']);
+                  return (details.description || details.address || details.city || details.hours || amenities.length > 0 || gallery.length > 0 || games.length > 0 || foodItems.length > 0) ? (
                     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5">
                       <div className="space-y-3">
                         {(details.description || details.address || details.city || details.hours) && (
@@ -150,6 +160,12 @@ export const CafeLiveDashboard: React.FC = () => {
                         <div>
                           <h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Gallery</h4>
                           <div className="grid grid-cols-2 gap-2">{gallery.map((image, index) => <img key={index} src={image} alt={`${cafe.cafe_name} gallery ${index + 1}`} className="w-full h-24 object-cover rounded-lg border border-neutral-800" loading="lazy" />)}</div>
+                        </div>
+                      )}
+                      {(games.length > 0 || foodItems.length > 0) && (
+                        <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-5">
+                          {games.length > 0 && <div className="bg-black border border-neutral-800 rounded-lg p-4"><h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Games</h4><div className="space-y-2">{games.map((game: any, index: number) => <div key={index} className="text-sm text-neutral-300">{typeof game === 'string' ? game : game.name || game.title || game.gameName || JSON.stringify(game)}</div>)}</div></div>}
+                          {foodItems.length > 0 && <div className="bg-black border border-neutral-800 rounded-lg p-4"><h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Food Items</h4><div className="space-y-2">{foodItems.map((item: any, index: number) => <div key={index} className="flex justify-between gap-3 text-sm text-neutral-300"><span>{typeof item === 'string' ? item : item.name || item.title || item.itemName || JSON.stringify(item)}</span>{typeof item !== 'string' && item.price != null && <span className="text-purple-400">₹{item.price}</span>}</div>)}</div></div>}
                         </div>
                       )}
                     </div>
