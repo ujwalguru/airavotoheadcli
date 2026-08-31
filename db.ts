@@ -43,6 +43,13 @@ export interface Cafe {
 
 // In-memory / file-based storage path for fallback mode
 const DATA_FILE = path.join(process.cwd(), 'cafes_data.json');
+const HEARTBEAT_TIMEOUT_MS = 3 * 60 * 1000;
+
+function isHeartbeatFresh(value: unknown): boolean {
+  if (!value) return false;
+  const timestamp = value instanceof Date ? value.getTime() : new Date(String(value)).getTime();
+  return Number.isFinite(timestamp) && Date.now() - timestamp <= HEARTBEAT_TIMEOUT_MS;
+}
 
 // PostgreSQL Pool instance (if configured)
 let pgPool: pg.Pool | null = null;
@@ -522,7 +529,8 @@ export async function syncCafeHeartbeat(
         email: 'auto@detected.pos',
         api_key: generateApiKey(),
         status: 'active',
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
       cafes.push(cafe);
     } else {
@@ -531,6 +539,7 @@ export async function syncCafeHeartbeat(
       cafe.public_metadata = publicMetadata;
       cafe.updated_at = new Date().toISOString();
     }
+    cafe.updated_at = new Date().toISOString();
     cafe.configurations = configurations;
     writeLocalCafes(cafes);
     return { cafeUpserted: true, heartbeatUpserted: true };
@@ -541,7 +550,7 @@ export async function syncCafeHeartbeat(
 export async function getLiveStatus(): Promise<any[]> {
   if (usePostgres && pgPool) {
     const res = await pgPool.query(`
-      SELECT c.*, h.availability, h.captured_at,
+      SELECT c.*, h.availability, h.captured_at, h.created_at AS heartbeat_received_at,
              (SELECT json_agg(row_to_json(cdc)) FROM cafe_device_configs cdc WHERE cdc.cafe_id = c.slug) as device_configs,
              (SELECT json_agg(row_to_json(cpc)) FROM cafe_pricing_configs cpc WHERE cpc.cafe_id = c.slug) as pricing_configs,
              (SELECT json_agg(row_to_json(chh)) FROM cafe_happy_hours chh WHERE chh.cafe_id = c.slug) as happy_hours,
@@ -552,40 +561,32 @@ export async function getLiveStatus(): Promise<any[]> {
     `);
     
     return res.rows.map(row => {
-      let devices = [];
-      let recent_entries = [];
-      
-      if (row.availability && Array.isArray(row.availability)) {
-        devices = row.availability.map((a: any) => ({
-          ...a,
-          type: a.category || a.type || 'PC',
-          total: Number(a.total || 0),
-          available: Number(a.available || 0),
-          inUse: Math.max(0, Number(a.total || 0) - Number(a.available || 0)),
-          seats: a.seats || a.seatAvailability || []
-        }));
-      } else {
-        // Fallback to mock for old cafes
-        const pcTotal = 10 + (row.id % 20);
-        const ps5Total = 2 + (row.id % 8);
-        const hour = new Date().getHours();
-        const usageFactor = (hour >= 17 || hour <= 2) ? 0.8 : 0.3;
-        const pcInUse = Math.floor(pcTotal * usageFactor * ((row.id % 5 + 5)/10));
-        const ps5InUse = Math.floor(ps5Total * usageFactor * ((row.id % 3 + 7)/10));
-        devices = [
-          { type: 'PC', total: pcTotal, inUse: pcInUse },
-          { type: 'PS5', total: ps5Total, inUse: ps5InUse }
-        ];
-      }
+      // Use the server-side receipt time for freshness so an old POS payload
+      // cannot make an inactive café look online again.
+      const heartbeatTimestamp = row.heartbeat_received_at || row.captured_at;
+      const isOnline = row.status === 'active' && isHeartbeatFresh(heartbeatTimestamp);
+      const liveStatus = row.status === 'suspended' ? 'suspended' : isOnline ? 'active' : 'offline';
+      const devices = isOnline && row.availability && Array.isArray(row.availability)
+        ? row.availability.map((a: any) => ({
+            ...a,
+            type: a.category || a.type || 'PC',
+            total: Number(a.total || 0),
+            available: Number(a.available || 0),
+            inUse: Math.max(0, Number(a.total || 0) - Number(a.available || 0)),
+            seats: a.seats || a.seatAvailability || []
+          }))
+        : [];
 
       return {
         cafe_id: row.id,
         cafe_name: row.cafe_name,
-        status: row.status,
+        status: liveStatus,
+        license_status: row.status,
+        is_online: isOnline,
         devices,
-        recent_entries,
-        last_heartbeat: row.captured_at,
-        availability: row.availability || [],
+        recent_entries: [],
+        last_heartbeat: row.heartbeat_received_at || row.captured_at,
+        availability: isOnline ? (row.availability || []) : [],
         cafe_details: {
           ...(row.public_metadata || {}),
           categories: row.categories || []
@@ -609,25 +610,30 @@ export async function getLiveStatus(): Promise<any[]> {
   // Local JSON fallback
   const cafes = readLocalCafes();
   return cafes.map(cafe => {
-    let devices = [];
-    if (false) {
-       // but we don't have directoryData here... wait, local JSON fallback doesn't matter much for Render (uses Postgres).
-    }
-    
-    const pcTotal = 10 + (cafe.id % 20);
-    const ps5Total = 2 + (cafe.id % 8);
-    devices = [
-      { type: 'PC', total: pcTotal, inUse: 0 },
-      { type: 'PS5', total: ps5Total, inUse: 0 }
-    ];
-    
+    const heartbeatTimestamp = cafe.updated_at;
+    const isOnline = cafe.status === 'active' && isHeartbeatFresh(heartbeatTimestamp);
+    const liveStatus = cafe.status === 'suspended' ? 'suspended' : isOnline ? 'active' : 'offline';
+    const devices = isOnline && Array.isArray(cafe.availability)
+      ? cafe.availability.map((a: any) => ({
+          ...a,
+          type: a.category || a.type || 'PC',
+          total: Number(a.total || 0),
+          available: Number(a.available || 0),
+          inUse: Math.max(0, Number(a.total || 0) - Number(a.available || 0)),
+          seats: a.seats || a.seatAvailability || []
+        }))
+      : [];
+
     return {
       cafe_id: cafe.id,
       cafe_name: cafe.cafe_name,
-      status: cafe.status,
+      status: liveStatus,
+      license_status: cafe.status,
+      is_online: isOnline,
       devices,
       recent_entries: [],
-      availability: cafe.availability || [],
+      last_heartbeat: heartbeatTimestamp,
+      availability: isOnline ? (cafe.availability || []) : [],
       cafe_details: {
         ...(cafe.public_metadata || {}),
         categories: cafe.categories || []

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight } from 'lucide-react';
+import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight, WifiOff } from 'lucide-react';
 import { CafeLiveStatus } from '../types';
 
 export const CafeLiveDashboard: React.FC = () => {
@@ -61,6 +61,12 @@ export const CafeLiveDashboard: React.FC = () => {
   };
 
   const getCafeDetails = (cafe: CafeLiveStatus) => cafe.cafe_details || {};
+
+  const isCafeOnline = (cafe: CafeLiveStatus) => cafe.status === 'active' && cafe.is_online === true;
+  const getCafeStatusLabel = (cafe: CafeLiveStatus) => {
+    if (isCafeOnline(cafe)) return 'Online';
+    return cafe.status === 'suspended' ? 'Suspended' : 'Offline';
+  };
 
   const normalizeSeatKey = (value: any) => {
     const text = String(value ?? '').trim().toLowerCase();
@@ -152,9 +158,10 @@ export const CafeLiveDashboard: React.FC = () => {
               const total = cafe.devices.reduce((sum, device) => sum + Number(device.total || 0), 0);
               const inUse = cafe.devices.reduce((sum, device) => sum + Number(device.inUse || 0), 0);
               const details = getCafeDetails(cafe);
-              return <button key={cafe.cafe_id} onClick={() => setSelectedCafe(cafe)} className="text-left bg-neutral-900 border border-neutral-800 hover:border-purple-500 rounded-xl p-4 transition group">
+              const online = isCafeOnline(cafe);
+              return <button key={cafe.cafe_id} onClick={() => setSelectedCafe(cafe)} className={`text-left bg-neutral-900 border rounded-xl p-4 transition group ${online ? 'border-neutral-800 hover:border-purple-500' : 'border-rose-500/30 hover:border-rose-500/60'}`}>
                 <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{cafe.cafe_name}</h3><p className="text-[11px] text-neutral-500 mt-1">Cafe ID: #{cafe.cafe_id}</p></div><ChevronRight className="w-4 h-4 text-neutral-600 group-hover:text-purple-400" /></div>
-                <div className="grid grid-cols-3 gap-2 mt-4 text-xs"><span className="text-neutral-400">Seats <strong className="block text-white text-base">{total}</strong></span><span className="text-neutral-400">In use <strong className="block text-rose-400 text-base">{inUse}</strong></span><span className="text-neutral-400">Status <strong className="block text-emerald-400 text-base">{cafe.status}</strong></span></div>
+                <div className="grid grid-cols-3 gap-2 mt-4 text-xs"><span className="text-neutral-400">Seats <strong className="block text-white text-base">{total}</strong></span><span className="text-neutral-400">In use <strong className="block text-rose-400 text-base">{inUse}</strong></span><span className="text-neutral-400">Status <strong className={`block text-base ${online ? 'text-emerald-400' : 'text-rose-400'}`}><span className={`inline-block w-2 h-2 rounded-full mr-1.5 align-middle ${online ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} aria-hidden="true" />{getCafeStatusLabel(cafe)}</strong></span></div>
                 {(details.city || details.address) && <p className="text-[11px] text-neutral-500 mt-3 truncate">{[details.city, details.address].filter(Boolean).join(' · ')}</p>}
               </button>;
             })}
@@ -172,11 +179,10 @@ export const CafeLiveDashboard: React.FC = () => {
                 <div>
                   <h3 className="font-bold text-white text-lg flex items-center gap-2">
                     {cafe.cafe_name}
-                    {cafe.status === 'active' ? (
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Active"></span>
-                    ) : (
-                      <span className="w-2 h-2 rounded-full bg-rose-500" title="Suspended"></span>
-                    )}
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${isCafeOnline(cafe) ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      <span className={`w-2 h-2 rounded-full ${isCafeOnline(cafe) ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} title={getCafeStatusLabel(cafe)} />
+                      {getCafeStatusLabel(cafe)}
+                    </span>
                   </h3>
                   <p className="text-xs text-neutral-500 font-mono mt-1">Cafe ID: #{cafe.cafe_id}</p>
                   <p className="text-[10px] text-neutral-600 mt-1">Last POS sync: {formatSyncedTime((cafe as CafeLiveStatus & { last_heartbeat?: string }).last_heartbeat)}</p>
@@ -184,6 +190,15 @@ export const CafeLiveDashboard: React.FC = () => {
               </div>
 
               <div className="p-5 flex-1 flex flex-col gap-6">
+                {!isCafeOnline(cafe) && (
+                  <div className="flex items-start gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-rose-200">
+                    <WifiOff className="w-4 h-4 mt-0.5 shrink-0 text-rose-400" />
+                    <div>
+                      <p className="text-sm font-semibold">{getCafeStatusLabel(cafe)} — POS app is not connected</p>
+                      <p className="text-xs text-rose-200/70 mt-1">Live device availability is hidden until this café sends a fresh POS heartbeat.</p>
+                    </div>
+                  </div>
+                )}
                 {(() => {
                   const details = getCafeDetails(cafe);
                   const gallery = getGalleryImages(details);

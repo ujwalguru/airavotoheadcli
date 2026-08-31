@@ -78,7 +78,9 @@ export interface CafeEntry {
 export interface CafeLiveStatus {
   cafe_id: number;
   cafe_name: string;
-  status: 'active' | 'suspended';
+  status: 'active' | 'suspended' | 'offline';
+  license_status?: 'active' | 'suspended';
+  is_online?: boolean;
   devices: DeviceStat[];
   recent_entries: CafeEntry[];
   last_heartbeat?: string;
