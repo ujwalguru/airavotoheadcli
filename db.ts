@@ -374,6 +374,17 @@ export async function findCafeByApiKey(apiKey: string): Promise<Cafe | null> {
 }
 
 
+function durationToMinutes(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(1, Math.round(value));
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) return 60;
+  const hours = Number(text.match(/(\\d+(?:\\.\\d+)?)\\s*h(?:ours?|r)?/)?.[1] || 0);
+  const minutes = Number(text.match(/(\\d+(?:\\.\\d+)?)\\s*m(?:in(?:ute)?s?)?/)?.[1] || 0);
+  if (hours || minutes) return Math.max(1, Math.round(hours * 60 + minutes));
+  const numeric = Number(text.replace(/[^0-9.]/g, ''));
+  return Number.isFinite(numeric) && numeric > 0 ? Math.max(1, Math.round(numeric)) : 60;
+}
+
 export async function syncCafeHeartbeat(
   slug: string,
   cafeName: string,
@@ -443,7 +454,7 @@ export async function syncCafeHeartbeat(
                  price = EXCLUDED.price,
                  pricing_type = EXCLUDED.pricing_type,
                  updated_at = CURRENT_TIMESTAMP`,
-              [slug, p.category, p.duration, p.price, p.personCount]
+              [slug, p.category, durationToMinutes(p.duration), p.price, p.personCount]
             );
           }
         }
@@ -471,7 +482,7 @@ export async function syncCafeHeartbeat(
                ON CONFLICT (cafe_id, category, duration, person_count) DO UPDATE SET
                  price = EXCLUDED.price,
                  updated_at = CURRENT_TIMESTAMP`,
-              [slug, hp.category, hp.duration, hp.price, hp.personCount]
+              [slug, hp.category, durationToMinutes(hp.duration), hp.price, hp.personCount]
             );
           }
         }
