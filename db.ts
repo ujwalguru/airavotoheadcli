@@ -244,6 +244,32 @@ export async function getAllCafes(): Promise<Cafe[]> {
 }
 
 /**
+ * Find cafe by the public POS slug.
+ * Used by the heartbeat endpoint so an already-running POS learns about suspension.
+ */
+export async function findCafeBySlug(slug: string): Promise<Cafe | null> {
+  const normalizedSlug = slug.trim().toLowerCase();
+  if (!normalizedSlug) return null;
+  if (usePostgres && pgPool) {
+    const res = await pgPool.query('SELECT * FROM cafes WHERE lower(slug) = $1', [normalizedSlug]);
+    if (res.rows.length === 0) return null;
+    const row = res.rows[0];
+    return {
+      id: row.id,
+      cafe_name: row.cafe_name,
+      owner_name: row.owner_name,
+      email: row.email,
+      api_key: row.api_key,
+      status: row.status,
+      created_at: new Date(row.created_at).toISOString(),
+      slug: row.slug || undefined,
+    };
+  }
+  const cafes = readLocalCafes();
+  return cafes.find((c) => String(c.slug || '').trim().toLowerCase() === normalizedSlug) || null;
+}
+
+/**
  * Find cafe by ID
  */
 export async function getCafeById(id: number): Promise<Cafe | null> {

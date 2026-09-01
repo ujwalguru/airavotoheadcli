@@ -24,7 +24,7 @@ import {
   getCafeById,
   createCafe,
   updateCafeStatus,
-  findCafeByIdAndApiKey, findCafeByApiKey, syncCafeHeartbeat, getLiveStatus,
+  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus,
 } from './db.js';
 
 dotenv.config();
@@ -643,6 +643,16 @@ app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (re
     // Sanitize or limit café text fields if needed (omitted full html stripping to keep it simple and preserve existing behavior, but we limit sizes elsewhere or rely on clean JSON).
     
     const normalizedSlug = slug.toLowerCase().replace(/\s+/g, '-');
+    const existingCafe = await findCafeBySlug(normalizedSlug);
+    if (existingCafe?.status === 'suspended') {
+      res.status(423).json({
+        success: false,
+        status: 'suspended',
+        cafe_id: normalizedSlug,
+        message: 'Access suspended: this café has been suspended by the administrator. Booking actions are locked.',
+      });
+      return;
+    }
     const capturedAt = payload.capturedAt || new Date().toISOString();
     const categories = payload.cafe?.categories || [];
     
@@ -665,6 +675,7 @@ app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (re
     res.status(200).json({ 
       success: true, 
       message: 'Heartbeat received',
+      status: existingCafe?.status || 'active',
       cafe_id: normalizedSlug
     });
   } catch (err) {
