@@ -649,7 +649,7 @@ app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (re
         success: false,
         status: 'suspended',
         cafe_id: normalizedSlug,
-        message: 'Access suspended: this café has been suspended by the administrator. Booking actions are locked.',
+        message: 'You have been suspended due to breaking the Terms and Conditions. If you believe this was a mistake, please contact us.',
       });
       return;
     }
