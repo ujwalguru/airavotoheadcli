@@ -668,6 +668,7 @@ function publicConfigurations(configurations: any) {
     pricing: Array.isArray(config.pricing) ? config.pricing.map((item: any) => pick(item, ['category', 'duration', 'price', 'person_count', 'pricing_type'])) : [],
     happyHours: Array.isArray(config.happyHours) ? config.happyHours.map((item: any) => pick(item, ['category', 'start_time', 'end_time', 'enabled'])) : [],
     happyHoursPricing: Array.isArray(config.happyHoursPricing) ? config.happyHoursPricing.map((item: any) => pick(item, ['category', 'duration', 'price', 'person_count'])) : [],
+    foodItems: Array.isArray(config.foodItems) ? stripPrivateFields(config.foodItems) : [],
   };
 }
 
