@@ -130,7 +130,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   }
   
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Api-Key');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Api-Key,X-Heartbeat-Secret');
   res.setHeader('Vary', 'Origin');
 
   // Handle preflight OPTIONS requests early before any auth middleware
