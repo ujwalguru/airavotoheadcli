@@ -48,6 +48,7 @@ const ALLOWED_ORIGINS = [
   'http://localhost:1420',
   'http://localhost:5173',
   'http://localhost:3000',
+  'https://cafeggaminng-airavoto-pos.vercel.app',
   ...(process.env.CORS_ORIGINS || '')
     .split(',')
     .map((origin) => origin.trim())
