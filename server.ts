@@ -47,7 +47,11 @@ const ALLOWED_ORIGINS = [
   'tauri://localhost',
   'http://localhost:1420',
   'http://localhost:5173',
-  'http://localhost:3000'
+  'http://localhost:3000',
+  ...(process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 ];
 
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -709,22 +713,65 @@ app.get('/api/cafes/check-name', async (req: Request, res: Response): Promise<vo
  * GET /api/directory
  * Public address for player-facing site (All listings)
  */
-app.get('/api/directory', (req: Request, res: Response): void => {
-  const result = Object.values(directoryData).map(listing => formatListing(listing));
-  res.json({ success: true, data: result });
+app.get('/api/directory', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const liveStatuses = await getLiveStatus();
+    const result = liveStatuses.map((listing: any) => ({
+      slug: listing.cafe_slug,
+      last_updated: listing.last_heartbeat ? new Date(listing.last_heartbeat).getTime() : 0,
+      is_stale: !listing.is_online,
+      status: listing.is_online ? 'online' : listing.license_status === 'suspended' ? 'suspended' : 'offline',
+      cafe: {
+        id: listing.cafe_slug,
+        name: listing.cafe_name,
+        ...(listing.cafe_details || {}),
+      },
+      availability: listing.is_online ? listing.devices : [],
+      configurations: listing.configurations,
+      capturedAt: listing.last_heartbeat,
+    }));
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('Error building public directory:', err);
+    const result = Object.values(directoryData).map(listing => formatListing(listing));
+    res.json({ success: true, data: result });
+  }
 });
 
 /**
  * GET /api/directory/:slug
  * Public address for player-facing site (Single listing)
  */
-app.get('/api/directory/:slug', (req: Request, res: Response): void => {
+app.get('/api/directory/:slug', async (req: Request, res: Response): Promise<void> => {
   const listing = directoryData[req.params.slug];
-  if (!listing) {
-    res.status(404).json({ success: false, message: 'Listing not found' });
+  if (listing) {
+    res.json({ success: true, data: formatListing(listing) });
     return;
   }
-  res.json({ success: true, data: formatListing(listing) });
+
+  try {
+    const persisted = (await getLiveStatus()).find((item: any) => item.cafe_slug === req.params.slug);
+    if (persisted) {
+      res.json({
+        success: true,
+        data: {
+          slug: persisted.cafe_slug,
+          last_updated: persisted.last_heartbeat ? new Date(persisted.last_heartbeat).getTime() : 0,
+          is_stale: !persisted.is_online,
+          status: persisted.is_online ? 'online' : persisted.license_status === 'suspended' ? 'suspended' : 'offline',
+          cafe: { id: persisted.cafe_slug, name: persisted.cafe_name, ...(persisted.cafe_details || {}) },
+          availability: persisted.is_online ? persisted.devices : [],
+          configurations: persisted.configurations,
+          capturedAt: persisted.last_heartbeat,
+        },
+      });
+      return;
+    }
+  } catch (err) {
+    console.error('Error loading persisted directory listing:', err);
+  }
+
+  res.status(404).json({ success: false, message: 'Listing not found' });
 });
 
 // ==========================================

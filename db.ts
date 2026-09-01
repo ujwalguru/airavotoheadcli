@@ -32,6 +32,7 @@ export interface Cafe {
   categories?: any[];
   public_metadata?: any;
   updated_at?: string;
+  captured_at?: string;
   availability?: any[];
   configurations?: {
     devices?: any[];
@@ -566,6 +567,8 @@ export async function syncCafeHeartbeat(
       cafe.updated_at = new Date().toISOString();
     }
     cafe.updated_at = new Date().toISOString();
+    cafe.availability = availability || [];
+    cafe.captured_at = capturedAt || new Date().toISOString();
     cafe.configurations = configurations;
     writeLocalCafes(cafes);
     return { cafeUpserted: true, heartbeatUpserted: true };
@@ -605,6 +608,7 @@ export async function getLiveStatus(): Promise<any[]> {
 
       return {
         cafe_id: row.id,
+        cafe_slug: row.slug,
         cafe_name: row.cafe_name,
         status: liveStatus,
         license_status: row.status,
@@ -652,6 +656,7 @@ export async function getLiveStatus(): Promise<any[]> {
 
     return {
       cafe_id: cafe.id,
+      cafe_slug: cafe.slug,
       cafe_name: cafe.cafe_name,
       status: liveStatus,
       license_status: cafe.status,
