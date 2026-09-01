@@ -685,6 +685,27 @@ app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (re
 });
 
 /**
+ * GET /api/cafes/check-name
+ * PUBLIC: Used by POS onboarding before creating a new café profile.
+ */
+app.get('/api/cafes/check-name', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const name = String(req.query.name || '').trim();
+    if (name.length < 2) {
+      res.status(400).json({ available: false, message: 'Enter a café name with at least 2 characters.' });
+      return;
+    }
+    const normalizedName = name.toLocaleLowerCase();
+    const cafes = await getAllCafes();
+    const taken = cafes.some((cafe) => String(cafe.cafe_name || '').trim().toLocaleLowerCase() === normalizedName);
+    res.status(200).json({ available: !taken, name, message: taken ? 'This café name has already been taken. Please use a different name.' : 'Café name is available.' });
+  } catch (error: any) {
+    console.error('Error checking café-name availability:', error);
+    res.status(500).json({ available: false, message: 'Could not check café-name availability right now.' });
+  }
+});
+
+/**
  * GET /api/directory
  * Public address for player-facing site (All listings)
  */
