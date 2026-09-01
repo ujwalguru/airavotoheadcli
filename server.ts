@@ -13,7 +13,7 @@
  */
 
 import express, { Request, Response, NextFunction } from 'express';
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import path from 'path';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
@@ -39,6 +39,7 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
 const HEARTBEAT_SECRET = process.env.HEARTBEAT_SECRET?.trim() || '';
+const CLOUDINARY_URL = process.env.CLOUDINARY_URL?.trim() || '';
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -696,6 +697,31 @@ function formatListing(listing: DirectoryListing) {
     ...formattedData
   };
 }
+
+/** Uploads one POS image to Cloudinary; only the resulting URL is returned. */
+app.post('/api/directory/image-upload', rateLimit('image-upload', 20, 60 * 60 * 1000), requireHeartbeatSecret, express.json({ limit: '12mb' }), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const match = CLOUDINARY_URL.match(/^cloudinary:\/\/([^:]+):([^@]+)@([^/]+)$/);
+    const dataUrl = String(req.body?.dataUrl || '');
+    if (!match || !/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(dataUrl)) {
+      res.status(400).json({ success: false, message: 'Invalid Cloudinary configuration or image data.' });
+      return;
+    }
+    const [, apiKey, apiSecret, cloudName] = match;
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const signature = createHash('sha1').update(`timestamp=${timestamp}${apiSecret}`).digest('hex');
+    const form = new URLSearchParams({ file: dataUrl, api_key: apiKey, timestamp, signature });
+    const upload = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: 'POST', body: form });
+    const result = await upload.json() as { secure_url?: string; error?: { message?: string } };
+    if (!upload.ok || !result.secure_url) {
+      res.status(502).json({ success: false, message: result.error?.message || 'Cloudinary upload failed.' });
+      return;
+    }
+    res.status(200).json({ success: true, url: result.secure_url });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error?.message || 'Image upload failed.' });
+  }
+});
 
 /**
  * POST /api/directory/heartbeat
