@@ -13,6 +13,7 @@
  */
 
 import express, { Request, Response, NextFunction } from 'express';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import path from 'path';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
@@ -31,11 +32,72 @@ dotenv.config();
 
 const app = express();
 const PORT = 3000;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production' || Boolean(process.env.RENDER);
 
-// Admin authentication credentials from environment (with friendly defaults for development testing)
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-const JWT_SECRET = process.env.JWT_SECRET || 'super_admin_secret_jwt_key_pos_license_987654';
+// Never use predictable production credentials or JWT secrets.
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || '';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
+const HEARTBEAT_SECRET = process.env.HEARTBEAT_SECRET?.trim() || '';
+
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (IS_PRODUCTION) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+type RateLimitBucket = { count: number; resetAt: number };
+const rateLimitBuckets = new Map<string, RateLimitBucket>();
+function rateLimit(name: string, maxRequests: number, windowMs: number) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const now = Date.now();
+    const key = `${name}:${req.ip || req.socket.remoteAddress || 'unknown'}`;
+    const current = rateLimitBuckets.get(key);
+    const bucket = !current || current.resetAt <= now
+      ? { count: 0, resetAt: now + windowMs }
+      : current;
+    bucket.count += 1;
+    rateLimitBuckets.set(key, bucket);
+    if (rateLimitBuckets.size > 5000) {
+      for (const [bucketKey, value] of rateLimitBuckets) {
+        if (value.resetAt <= now) rateLimitBuckets.delete(bucketKey);
+      }
+    }
+    res.setHeader('RateLimit-Limit', maxRequests);
+    res.setHeader('RateLimit-Remaining', Math.max(0, maxRequests - bucket.count));
+    res.setHeader('RateLimit-Reset', Math.ceil(bucket.resetAt / 1000));
+    if (bucket.count > maxRequests) {
+      res.status(429).json({ error: 'Too Many Requests', message: 'Please try again later.' });
+      return;
+    }
+    next();
+  };
+}
+
+function secretsMatch(provided: unknown, expected: string): boolean {
+  if (typeof provided !== 'string' || !expected) return false;
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(expected);
+  return providedBuffer.length === expectedBuffer.length && timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+function requireHeartbeatSecret(req: Request, res: Response, next: NextFunction): void {
+  if (!HEARTBEAT_SECRET) {
+    next();
+    return;
+  }
+  const provided = req.headers['x-heartbeat-secret'];
+  if (!secretsMatch(provided, HEARTBEAT_SECRET)) {
+    res.status(401).json({ success: false, message: 'Heartbeat authentication required.' });
+    return;
+  }
+  next();
+}
 
 
 // ==========================================
@@ -150,11 +212,17 @@ function requireAdminAuth(req: Request, res: Response, next: NextFunction): void
  * POST /api/admin/login
  * Verifies username and password against environment variables and issues JWT token
  */
-app.post('/api/admin/login', (req: Request, res: Response): void => {
+app.post('/api/admin/login', rateLimit('admin-login', 10, 15 * 60 * 1000), (req: Request, res: Response): void => {
   const { username, password } = req.body;
 
   if (!username || !password) {
     res.status(400).json({ error: 'Bad Request', message: 'Username and password are required' });
+    return;
+  }
+
+  // Refuse authentication when production credentials were not configured.
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
+    res.status(503).json({ error: 'Service Unavailable', message: 'Admin authentication is not configured.' });
     return;
   }
 
@@ -177,7 +245,6 @@ app.post('/api/admin/login', (req: Request, res: Response): void => {
     res.json({
       success: true,
       message: 'Login successful',
-      token,
       user: {
         username: ADMIN_USERNAME,
         role: 'super_admin',
@@ -443,7 +510,7 @@ app.post('/api/pos/register', async (req: Request, res: Response): Promise<void>
  *   cafe_name?: string
  * }
  */
-app.get('/api/pos/verify', async (req: Request, res: Response): Promise<void> => {
+app.get('/api/pos/verify', rateLimit('pos-verify', 30, 60 * 1000), async (req: Request, res: Response): Promise<void> => {
   try {
     // Extract cafe_id and api_key from query params, headers, or body
     const rawCafeId = req.query.cafe_id || req.headers['x-cafe-id'] || req.body?.cafe_id;
@@ -514,7 +581,7 @@ app.get('/api/pos/verify', async (req: Request, res: Response): Promise<void> =>
 });
 
 // Also support POST for /api/pos/verify for POS clients preferring POST payloads
-app.post('/api/pos/verify', async (req: Request, res: Response): Promise<void> => {
+app.post('/api/pos/verify', rateLimit('pos-verify', 30, 60 * 1000), async (req: Request, res: Response): Promise<void> => {
   const rawCafeId = req.body?.cafe_id || req.query.cafe_id || req.headers['x-cafe-id'];
   const apiKey = (req.body?.api_key || req.query.api_key || req.headers['x-api-key']) as string;
 
@@ -580,9 +647,34 @@ interface DirectoryListing {
 }
 const directoryData: Record<string, DirectoryListing> = {};
 
+const PRIVATE_FIELD_PATTERN = /(^|_)(api[_-]?key|password|secret|token|authorization|owner[_-]?email)($|_)/i;
+function stripPrivateFields(value: unknown): any {
+  if (Array.isArray(value)) return value.map(stripPrivateFields);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !PRIVATE_FIELD_PATTERN.test(key))
+      .map(([key, child]) => [key, stripPrivateFields(child)]),
+  );
+}
+
+function publicConfigurations(configurations: any) {
+  const config = configurations || {};
+  const pick = (item: any, keys: string[]) => Object.fromEntries(
+    keys.filter((key) => item?.[key] !== undefined).map((key) => [key, item[key]]),
+  );
+  return {
+    devices: Array.isArray(config.devices) ? config.devices.map((item: any) => pick(item, ['category', 'name', 'seat_name', 'count', 'status', 'start_time', 'end_time', 'enabled'])) : [],
+    pricing: Array.isArray(config.pricing) ? config.pricing.map((item: any) => pick(item, ['category', 'duration', 'price', 'person_count', 'pricing_type'])) : [],
+    happyHours: Array.isArray(config.happyHours) ? config.happyHours.map((item: any) => pick(item, ['category', 'start_time', 'end_time', 'enabled'])) : [],
+    happyHoursPricing: Array.isArray(config.happyHoursPricing) ? config.happyHoursPricing.map((item: any) => pick(item, ['category', 'duration', 'price', 'person_count'])) : [],
+  };
+}
+
 function formatListing(listing: DirectoryListing) {
   const isStale = (Date.now() - listing.lastUpdate) > 3 * 60 * 1000; // 3 minutes threshold
-  const formattedData = { ...listing.data };
+  const formattedData = stripPrivateFields(listing.data);
+
   
   // Rule: a café which stopped reporting shows "unknown" instead of old numbers
   if (isStale) {
@@ -609,7 +701,7 @@ function formatListing(listing: DirectoryListing) {
  * Public POS heartbeat endpoint. Uses validation, rate limiting, and payload restrictions instead of API keys.
  * Receives seat counts from the desktop app (POS)
  */
-app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (req: Request, res: Response): Promise<void> => {
+app.post('/api/directory/heartbeat', rateLimit('heartbeat', 60, 60 * 1000), requireHeartbeatSecret, express.json({ limit: '100kb' }), async (req: Request, res: Response): Promise<void> => {
   try {
     const payload = req.body;
     
@@ -693,7 +785,7 @@ app.post('/api/directory/heartbeat', express.json({ limit: '100kb' }), async (re
  * GET /api/cafes/check-name
  * PUBLIC: Used by POS onboarding before creating a new café profile.
  */
-app.get('/api/cafes/check-name', async (req: Request, res: Response): Promise<void> => {
+app.get('/api/cafes/check-name', rateLimit('check-name', 30, 60 * 1000), async (req: Request, res: Response): Promise<void> => {
   try {
     const name = String(req.query.name || '').trim();
     if (name.length < 2) {
@@ -714,7 +806,7 @@ app.get('/api/cafes/check-name', async (req: Request, res: Response): Promise<vo
  * GET /api/directory
  * Public address for player-facing site (All listings)
  */
-app.get('/api/directory', async (_req: Request, res: Response): Promise<void> => {
+app.get('/api/directory', rateLimit('directory', 60, 60 * 1000), async (_req: Request, res: Response): Promise<void> => {
   try {
     const liveStatuses = await getLiveStatus();
     const result = liveStatuses.map((listing: any) => ({
@@ -728,7 +820,7 @@ app.get('/api/directory', async (_req: Request, res: Response): Promise<void> =>
         ...(listing.cafe_details || {}),
       },
       availability: listing.is_online ? listing.devices : [],
-      configurations: listing.configurations,
+      configurations: publicConfigurations(listing.configurations),
       capturedAt: listing.last_heartbeat,
     }));
     res.json({ success: true, data: result });
@@ -743,7 +835,7 @@ app.get('/api/directory', async (_req: Request, res: Response): Promise<void> =>
  * GET /api/directory/:slug
  * Public address for player-facing site (Single listing)
  */
-app.get('/api/directory/:slug', async (req: Request, res: Response): Promise<void> => {
+app.get('/api/directory/:slug', rateLimit('directory-detail', 60, 60 * 1000), async (req: Request, res: Response): Promise<void> => {
   const listing = directoryData[req.params.slug];
   if (listing) {
     res.json({ success: true, data: formatListing(listing) });
@@ -762,7 +854,7 @@ app.get('/api/directory/:slug', async (req: Request, res: Response): Promise<voi
           status: persisted.is_online ? 'online' : persisted.license_status === 'suspended' ? 'suspended' : 'offline',
           cafe: { id: persisted.cafe_slug, name: persisted.cafe_name, ...(persisted.cafe_details || {}) },
           availability: persisted.is_online ? persisted.devices : [],
-          configurations: persisted.configurations,
+          configurations: publicConfigurations(persisted.configurations),
           capturedAt: persisted.last_heartbeat,
         },
       });
