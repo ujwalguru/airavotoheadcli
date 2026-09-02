@@ -838,7 +838,8 @@ app.get('/api/directory/game-image', rateLimit('game-image', 60, 60 * 1000), asy
     const searchResponse = await fetch(`https://api.thegamesdb.net/v1/Games/ByGameName?apikey=${encodeURIComponent(THEGAMESDB_API_KEY)}&name=${encodeURIComponent(name)}`);
     if (!searchResponse.ok) { res.status(502).json({ message: 'TheGamesDB search failed.' }); return; }
     const search = await searchResponse.json() as any;
-    const game = Object.values(search?.data?.games || {})[0] as any;
+    const games = search?.data?.games;
+    const game = (Array.isArray(games) ? games[0] : Object.values(games || {})[0]) as any;
     if (!game?.id) { res.status(404).json({ message: 'No game artwork found.' }); return; }
     const imageResponse = await fetch(`https://api.thegamesdb.net/v1/Games/Images?apikey=${encodeURIComponent(THEGAMESDB_API_KEY)}&games_id=${encodeURIComponent(game.id)}`);
     if (!imageResponse.ok) { res.status(502).json({ message: 'TheGamesDB image lookup failed.' }); return; }
