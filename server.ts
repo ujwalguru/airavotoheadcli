@@ -40,6 +40,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
 const HEARTBEAT_SECRET = process.env.HEARTBEAT_SECRET?.trim() || '';
 const CLOUDINARY_URL = process.env.CLOUDINARY_URL?.trim() || '';
+const THEGAMESDB_API_KEY = process.env.THEGAMESDB_API_KEY?.trim() || '';
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -826,6 +827,30 @@ app.get('/api/cafes/check-name', rateLimit('check-name', 30, 60 * 1000), async (
   } catch (error: any) {
     console.error('Error checking café-name availability:', error);
     res.status(500).json({ available: false, message: 'Could not check café-name availability right now.' });
+  }
+});
+
+app.get('/api/directory/game-image', rateLimit('game-image', 60, 60 * 1000), async (req: Request, res: Response): Promise<void> => {
+  const name = String(req.query.name || '').trim();
+  if (!name) { res.status(400).json({ message: 'Game name is required.' }); return; }
+  if (!THEGAMESDB_API_KEY) { res.status(503).json({ message: 'Game image service is not configured.' }); return; }
+  try {
+    const searchResponse = await fetch(`https://api.thegamesdb.net/v1/Games/ByGameName?apikey=${encodeURIComponent(THEGAMESDB_API_KEY)}&name=${encodeURIComponent(name)}`);
+    if (!searchResponse.ok) { res.status(502).json({ message: 'TheGamesDB search failed.' }); return; }
+    const search = await searchResponse.json() as any;
+    const game = Object.values(search?.data?.games || {})[0] as any;
+    if (!game?.id) { res.status(404).json({ message: 'No game artwork found.' }); return; }
+    const imageResponse = await fetch(`https://api.thegamesdb.net/v1/Games/Images?apikey=${encodeURIComponent(THEGAMESDB_API_KEY)}&games_id=${encodeURIComponent(game.id)}`);
+    if (!imageResponse.ok) { res.status(502).json({ message: 'TheGamesDB image lookup failed.' }); return; }
+    const images = await imageResponse.json() as any;
+    const imageList = Object.values(images?.data?.images || {}).flat() as any[];
+    const box = imageList.find((image) => image.type === 'boxart' && (!image.side || image.side === 'front')) || imageList.find((image) => image.type === 'boxart') || imageList[0];
+    const base = images?.data?.base_url?.medium || images?.data?.base_url?.original;
+    if (!box?.filename || !base) { res.status(404).json({ message: 'No game artwork found.' }); return; }
+    res.json({ url: `${base}${box.filename}`, source: 'TheGamesDB' });
+  } catch (error) {
+    console.error('TheGamesDB artwork proxy error:', error);
+    res.status(502).json({ message: 'Game image service unavailable.' });
   }
 });
 
