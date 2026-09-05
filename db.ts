@@ -283,9 +283,9 @@ export async function findCafeBySlug(slug: string): Promise<Cafe | null> {
   return cafes.find((c) => String(c.slug || '').trim().toLowerCase() === normalizedSlug) || null;
 }
 
-export async function saveCafeGalleryImage(apiKey: string, data: Buffer, mimeType: string): Promise<string | null> {
+export async function saveCafeGalleryImage(apiKey: string, slugHint: string, data: Buffer, mimeType: string): Promise<string | null> {
   if (usePostgres && pgPool) {
-    const result = await pgPool.query('SELECT slug FROM cafes WHERE api_key = $1 LIMIT 1', [apiKey]);
+    const result = await pgPool.query('SELECT slug FROM cafes WHERE ($1 <> \'\' AND api_key = $1) OR ($2 <> \'\' AND lower(slug) = lower($2)) LIMIT 1', [apiKey, slugHint]);
     const slug = result.rows[0]?.slug;
     if (!slug) return null;
     await pgPool.query(
@@ -296,7 +296,7 @@ export async function saveCafeGalleryImage(apiKey: string, data: Buffer, mimeTyp
     );
     return slug;
   }
-  const cafe = readLocalCafes().find((item) => item.api_key === apiKey);
+  const cafe = readLocalCafes().find((item) => item.api_key === apiKey || String(item.slug || '').toLowerCase() === slugHint.toLowerCase());
   if (!cafe?.slug) return null;
   localGalleryImages.set(cafe.slug, { data, mimeType });
   return cafe.slug;

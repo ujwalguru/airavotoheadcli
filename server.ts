@@ -793,7 +793,8 @@ app.post('/api/directory/image-upload', rateLimit('image-upload', 20, 60 * 60 * 
       return;
     }
     const apiKey = String(req.headers['x-api-key'] || '').trim();
-    const slug = await saveCafeGalleryImage(apiKey, imageBuffer, mimeType);
+    const slugHint = String(req.headers['x-cafe-slug'] || '').trim();
+    const slug = await saveCafeGalleryImage(apiKey, slugHint, imageBuffer, mimeType);
     if (!slug) {
       res.status(401).json({ success: false, message: 'A valid cafe API key is required for image upload.' });
       return;
