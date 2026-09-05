@@ -25,7 +25,7 @@ import {
   getCafeById,
   createCafe,
   updateCafeStatus,
-  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus,
+  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, saveCafeGalleryImage, getCafeGalleryImage, removeDuplicateCafeSlug,
 } from './db.js';
 
 dotenv.config();
@@ -39,7 +39,6 @@ const ADMIN_USERNAME = process.env.ADMIN_USERNAME || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
 const HEARTBEAT_SECRET = process.env.HEARTBEAT_SECRET?.trim() || '';
-const CLOUDINARY_URL = process.env.CLOUDINARY_URL?.trim() || '';
 const THEGAMESDB_API_KEY = process.env.THEGAMESDB_API_KEY?.trim() || '';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID?.trim() || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim() || '';
@@ -778,28 +777,42 @@ function formatListing(listing: DirectoryListing) {
   };
 }
 
-/** Uploads one POS image to Cloudinary; only the resulting URL is returned. */
+/** Stores one POS image in the Render database and returns a public Render URL. */
 app.post('/api/directory/image-upload', rateLimit('image-upload', 20, 60 * 60 * 1000), requireHeartbeatSecret, express.json({ limit: '12mb' }), async (req: Request, res: Response): Promise<void> => {
   try {
-    const match = CLOUDINARY_URL.match(/^cloudinary:\/\/([^:]+):([^@]+)@([^/]+)$/);
     const dataUrl = String(req.body?.dataUrl || '');
-    if (!match || !/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(dataUrl)) {
-      res.status(400).json({ success: false, message: 'Invalid Cloudinary configuration or image data.' });
+    const match = dataUrl.match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
+    if (!match) {
+      res.status(400).json({ success: false, message: 'Invalid image data. Use a JPEG, PNG, or WebP image.' });
       return;
     }
-    const [, apiKey, apiSecret, cloudName] = match;
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const signature = createHash('sha1').update(`timestamp=${timestamp}${apiSecret}`).digest('hex');
-    const form = new URLSearchParams({ file: dataUrl, api_key: apiKey, timestamp, signature });
-    const upload = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: 'POST', body: form });
-    const result = await upload.json() as { secure_url?: string; error?: { message?: string } };
-    if (!upload.ok || !result.secure_url) {
-      res.status(502).json({ success: false, message: result.error?.message || 'Cloudinary upload failed.' });
+    const mimeType = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
+    const imageBuffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+    if (imageBuffer.byteLength > 307200) {
+      res.status(413).json({ success: false, message: 'Image must be 300 KB or smaller.' });
       return;
     }
-    res.status(200).json({ success: true, url: result.secure_url });
+    const apiKey = String(req.headers['x-api-key'] || '').trim();
+    const slug = await saveCafeGalleryImage(apiKey, imageBuffer, mimeType);
+    if (!slug) {
+      res.status(401).json({ success: false, message: 'A valid cafe API key is required for image upload.' });
+      return;
+    }
+    const publicUrl = `${req.protocol}://${req.get('host')}/api/directory/${encodeURIComponent(slug)}/gallery-image`;
+    res.status(200).json({ success: true, url: publicUrl, storage: 'render-database' });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error?.message || 'Image upload failed.' });
+  }
+});
+
+app.get('/api/directory/:slug/gallery-image', rateLimit('gallery-image', 120, 60 * 1000), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const image = await getCafeGalleryImage(String(req.params.slug || '').trim().toLowerCase());
+    if (!image) { res.status(404).end(); return; }
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.type(image.mimeType).send(image.data);
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error?.message || 'Gallery image unavailable.' });
   }
 });
 
@@ -846,8 +859,14 @@ app.post('/api/directory/heartbeat', rateLimit('heartbeat', 60, 60 * 1000), requ
     
     // Sanitize or limit café text fields if needed (omitted full html stripping to keep it simple and preserve existing behavior, but we limit sizes elsewhere or rely on clean JSON).
     
-    const normalizedSlug = slug.toLowerCase().replace(/\s+/g, '-');
-    const existingCafe = await findCafeBySlug(normalizedSlug);
+    const requestedSlug = slug.toLowerCase().replace(/\s+/g, '-');
+    const apiKey = String(req.headers['x-api-key'] || '').trim();
+    const cafeByApiKey = apiKey ? await findCafeByApiKey(apiKey) : null;
+    if (cafeByApiKey?.slug && cafeByApiKey.slug !== requestedSlug) {
+      await removeDuplicateCafeSlug(requestedSlug, apiKey);
+    }
+    const normalizedSlug = cafeByApiKey?.slug || requestedSlug;
+    const existingCafe = await findCafeBySlug(normalizedSlug) || cafeByApiKey;
     if (existingCafe?.status === 'suspended') {
       res.status(423).json({
         success: false,

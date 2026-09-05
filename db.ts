@@ -55,6 +55,7 @@ function isHeartbeatFresh(value: unknown): boolean {
 // PostgreSQL Pool instance (if configured)
 let pgPool: pg.Pool | null = null;
 let usePostgres = false;
+const localGalleryImages = new Map<string, { data: Buffer; mimeType: string }>();
 
 /**
  * Initialize Database connection and tables
@@ -97,6 +98,15 @@ export async function initDatabase(): Promise<{cafeUpserted: boolean, heartbeatU
         ADD COLUMN IF NOT EXISTS public_metadata JSONB,
         ADD COLUMN IF NOT EXISTS categories JSONB,
         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+      `);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS cafe_gallery_images (
+          cafe_slug VARCHAR(255) PRIMARY KEY,
+          image_data BYTEA NOT NULL,
+          mime_type VARCHAR(100) NOT NULL,
+          updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        );
       `);
 
       await client.query(`
@@ -271,6 +281,53 @@ export async function findCafeBySlug(slug: string): Promise<Cafe | null> {
   }
   const cafes = readLocalCafes();
   return cafes.find((c) => String(c.slug || '').trim().toLowerCase() === normalizedSlug) || null;
+}
+
+export async function saveCafeGalleryImage(apiKey: string, data: Buffer, mimeType: string): Promise<string | null> {
+  if (usePostgres && pgPool) {
+    const result = await pgPool.query('SELECT slug FROM cafes WHERE api_key = $1 LIMIT 1', [apiKey]);
+    const slug = result.rows[0]?.slug;
+    if (!slug) return null;
+    await pgPool.query(
+      `INSERT INTO cafe_gallery_images (cafe_slug, image_data, mime_type)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (cafe_slug) DO UPDATE SET image_data = EXCLUDED.image_data, mime_type = EXCLUDED.mime_type, updated_at = CURRENT_TIMESTAMP`,
+      [slug, data, mimeType]
+    );
+    return slug;
+  }
+  const cafe = readLocalCafes().find((item) => item.api_key === apiKey);
+  if (!cafe?.slug) return null;
+  localGalleryImages.set(cafe.slug, { data, mimeType });
+  return cafe.slug;
+}
+
+export async function getCafeGalleryImage(slug: string): Promise<{ data: Buffer; mimeType: string } | null> {
+  if (usePostgres && pgPool) {
+    const result = await pgPool.query('SELECT image_data, mime_type FROM cafe_gallery_images WHERE cafe_slug = $1 LIMIT 1', [slug]);
+    if (!result.rows[0]) return null;
+    return { data: result.rows[0].image_data, mimeType: result.rows[0].mime_type };
+  }
+  return localGalleryImages.get(slug) || null;
+}
+
+export async function removeDuplicateCafeSlug(slug: string, ownerApiKey: string): Promise<void> {
+  if (!slug || !ownerApiKey) return;
+  if (usePostgres && pgPool) {
+    const result = await pgPool.query('SELECT api_key FROM cafes WHERE lower(slug) = $1 LIMIT 1', [slug.toLowerCase()]);
+    if (result.rows[0] && result.rows[0].api_key !== ownerApiKey) {
+      await pgPool.query('DELETE FROM heartbeats WHERE cafe_slug = $1', [slug]);
+      await pgPool.query('DELETE FROM cafe_gallery_images WHERE cafe_slug = $1', [slug]);
+      await pgPool.query('DELETE FROM cafes WHERE lower(slug) = $1 AND api_key <> $2', [slug.toLowerCase(), ownerApiKey]);
+    }
+    return;
+  }
+  const cafes = readLocalCafes();
+  const duplicate = cafes.find((cafe) => String(cafe.slug || '').toLowerCase() === slug.toLowerCase());
+  if (duplicate && duplicate.api_key !== ownerApiKey) {
+    writeLocalCafes(cafes.filter((cafe) => cafe !== duplicate));
+    localGalleryImages.delete(slug);
+  }
 }
 
 /**
