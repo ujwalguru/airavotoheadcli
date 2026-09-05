@@ -746,9 +746,9 @@ function publicConfigurations(configurations: any) {
   );
   return {
     devices: Array.isArray(config.devices) ? config.devices.map((item: any) => pick(item, ['category', 'name', 'seat_name', 'count', 'status', 'start_time', 'end_time', 'enabled'])) : [],
-    pricing: Array.isArray(config.pricing) ? config.pricing.map((item: any) => pick(item, ['category', 'duration', 'price', 'person_count', 'pricing_type', 'websiteVisible'])) : [],
+    pricing: Array.isArray(config.pricing) ? config.pricing.map((item: any) => pick(item, ['category', 'duration', 'price', 'person_count', 'pricing_type', 'websiteVisible', 'website_visible'])) : [],
     happyHours: Array.isArray(config.happyHours) ? config.happyHours.map((item: any) => pick(item, ['category', 'start_time', 'end_time', 'enabled'])) : [],
-    happyHoursPricing: Array.isArray(config.happyHoursPricing) ? config.happyHoursPricing.map((item: any) => pick(item, ['category', 'duration', 'price', 'person_count', 'websiteVisible'])) : [],
+    happyHoursPricing: Array.isArray(config.happyHoursPricing) ? config.happyHoursPricing.map((item: any) => pick(item, ['category', 'duration', 'price', 'person_count', 'websiteVisible', 'website_visible'])) : [],
     foodItems: Array.isArray(config.foodItems) ? stripPrivateFields(config.foodItems) : [],
   };
 }

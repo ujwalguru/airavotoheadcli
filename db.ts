@@ -136,10 +136,12 @@ export async function initDatabase(): Promise<{cafeUpserted: boolean, heartbeatU
           price NUMERIC,
           person_count INTEGER,
           pricing_type VARCHAR(255),
+          website_visible BOOLEAN DEFAULT TRUE,
           updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(cafe_id, category, duration, person_count)
         );
       `);
+      await client.query(`ALTER TABLE cafe_pricing_configs ADD COLUMN IF NOT EXISTS website_visible BOOLEAN DEFAULT TRUE`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS cafe_happy_hours (
@@ -162,11 +164,12 @@ export async function initDatabase(): Promise<{cafeUpserted: boolean, heartbeatU
           duration INTEGER,
           price NUMERIC,
           person_count INTEGER,
+          website_visible BOOLEAN DEFAULT TRUE,
           updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(cafe_id, category, duration, person_count)
         );
       `);
-
+      await client.query(`ALTER TABLE cafe_happy_hours_pricing ADD COLUMN IF NOT EXISTS website_visible BOOLEAN DEFAULT TRUE`);
 
       client.release();
       usePostgres = true;
@@ -492,13 +495,14 @@ export async function syncCafeHeartbeat(
         if (configurations.pricing && Array.isArray(configurations.pricing)) {
           for (const p of configurations.pricing) {
             await client.query(
-              `INSERT INTO cafe_pricing_configs (cafe_id, category, duration, price, person_count, pricing_type)
-               VALUES ($1, $2, $3, $4, $5, 'regular')
+              `INSERT INTO cafe_pricing_configs (cafe_id, category, duration, price, person_count, pricing_type, website_visible)
+               VALUES ($1, $2, $3, $4, $5, 'regular', $6)
                ON CONFLICT (cafe_id, category, duration, person_count) DO UPDATE SET
                  price = EXCLUDED.price,
                  pricing_type = EXCLUDED.pricing_type,
+                 website_visible = EXCLUDED.website_visible,
                  updated_at = CURRENT_TIMESTAMP`,
-              [slug, p.category, durationToMinutes(p.duration), p.price, p.personCount]
+              [slug, p.category, durationToMinutes(p.duration), p.price, p.personCount, p.websiteVisible !== false]
             );
           }
         }
@@ -521,12 +525,13 @@ export async function syncCafeHeartbeat(
         if (configurations.happyHoursPricing && Array.isArray(configurations.happyHoursPricing)) {
           for (const hp of configurations.happyHoursPricing) {
             await client.query(
-              `INSERT INTO cafe_happy_hours_pricing (cafe_id, category, duration, price, person_count)
-               VALUES ($1, $2, $3, $4, $5)
+              `INSERT INTO cafe_happy_hours_pricing (cafe_id, category, duration, price, person_count, website_visible)
+               VALUES ($1, $2, $3, $4, $5, $6)
                ON CONFLICT (cafe_id, category, duration, person_count) DO UPDATE SET
                  price = EXCLUDED.price,
+                 website_visible = EXCLUDED.website_visible,
                  updated_at = CURRENT_TIMESTAMP`,
-              [slug, hp.category, durationToMinutes(hp.duration), hp.price, hp.personCount]
+              [slug, hp.category, durationToMinutes(hp.duration), hp.price, hp.personCount, hp.websiteVisible !== false]
             );
           }
         }
