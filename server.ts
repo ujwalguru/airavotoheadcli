@@ -41,6 +41,11 @@ const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
 const HEARTBEAT_SECRET = process.env.HEARTBEAT_SECRET?.trim() || '';
 const CLOUDINARY_URL = process.env.CLOUDINARY_URL?.trim() || '';
 const THEGAMESDB_API_KEY = process.env.THEGAMESDB_API_KEY?.trim() || '';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID?.trim() || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET?.trim() || '';
+const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || 'https://airavotoheadcli.onrender.com').replace(/\/$/, '');
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://cafeggaminng-airavoto-pos.vercel.app').replace(/\/$/, '');
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI?.trim() || `${PUBLIC_API_URL}/api/auth/google/callback`;
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -206,6 +211,22 @@ function requireAdminAuth(req: Request, res: Response, next: NextFunction): void
   }
 }
 
+function googleConfigured() {
+  return Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REDIRECT_URI && FRONTEND_URL);
+}
+
+function safeFrontendRedirect(value: unknown) {
+  const fallback = `${FRONTEND_URL}/signup`;
+  if (typeof value !== 'string' || !value.trim()) return fallback;
+  try {
+    const candidate = new URL(value, FRONTEND_URL);
+    const allowed = new URL(FRONTEND_URL);
+    return candidate.origin === allowed.origin ? candidate.toString() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 // ==========================================
 // 1. ADMIN AUTHENTICATION ROUTES
 // ==========================================
@@ -294,6 +315,64 @@ app.get('/api/admin/me', (req: Request, res: Response): void => {
   } catch {
     res.json({ authenticated: false });
   }
+});
+
+// ==========================================
+// 1.5 GOOGLE SIGN-IN
+// ==========================================
+app.get('/api/auth/google', rateLimit('google-start', 20, 15 * 60 * 1000), (req: Request, res: Response): void => {
+  if (!googleConfigured()) {
+    res.status(503).json({ success: false, message: 'Google authentication is not configured on the server.' });
+    return;
+  }
+  const state = randomBytes(24).toString('hex');
+  res.cookie('google_oauth_state', state, { httpOnly: true, secure: IS_PRODUCTION, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
+  res.cookie('google_oauth_return_to', safeFrontendRedirect(req.query.returnTo), { httpOnly: true, secure: IS_PRODUCTION, sameSite: 'lax', maxAge: 10 * 60 * 1000 });
+  const params = new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, redirect_uri: GOOGLE_REDIRECT_URI, response_type: 'code', scope: 'openid email profile', state, access_type: 'online', prompt: 'select_account' });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+app.get('/api/auth/google/callback', rateLimit('google-callback', 20, 15 * 60 * 1000), async (req: Request, res: Response): Promise<void> => {
+  const returnTo = safeFrontendRedirect(req.cookies.google_oauth_return_to);
+  const state = String(req.query.state || '');
+  const expectedState = String(req.cookies.google_oauth_state || '');
+  res.clearCookie('google_oauth_state');
+  res.clearCookie('google_oauth_return_to');
+  if (!googleConfigured() || !state || !expectedState || state !== expectedState) {
+    res.redirect(`${returnTo}?google_error=${encodeURIComponent('Google sign-in expired. Please try again.')}`);
+    return;
+  }
+  if (req.query.error) {
+    res.redirect(`${returnTo}?google_error=${encodeURIComponent(String(req.query.error_description || 'Google sign-in was cancelled.'))}`);
+    return;
+  }
+  try {
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code: String(req.query.code || ''), client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, redirect_uri: GOOGLE_REDIRECT_URI, grant_type: 'authorization_code' }) });
+    const tokenPayload = await tokenResponse.json() as { access_token?: string; error_description?: string };
+    if (!tokenResponse.ok || !tokenPayload.access_token) throw new Error(tokenPayload.error_description || 'Google token exchange failed.');
+    const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${tokenPayload.access_token}` } });
+    const profile = await profileResponse.json() as { sub?: string; name?: string; email?: string; picture?: string; email_verified?: boolean };
+    if (!profileResponse.ok || !profile.sub || !profile.email || profile.email_verified === false) throw new Error('Google did not return a verified email address.');
+    const sessionToken = jwt.sign({ sub: profile.sub, email: profile.email, name: profile.name || profile.email.split('@')[0], picture: profile.picture || '', role: 'user', provider: 'google' }, JWT_SECRET, { expiresIn: '30d' });
+    res.cookie('user_token', sessionToken, { httpOnly: true, secure: IS_PRODUCTION, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
+    res.redirect(`${returnTo}?google=success`);
+  } catch (error: any) {
+    res.redirect(`${returnTo}?google_error=${encodeURIComponent(error?.message || 'Google sign-in failed.')}`);
+  }
+});
+
+app.get('/api/auth/me', (req: Request, res: Response): void => {
+  const token = req.cookies.user_token;
+  if (!token) { res.json({ authenticated: false }); return; }
+  try {
+    const user = jwt.verify(token, JWT_SECRET) as Record<string, unknown>;
+    res.json({ authenticated: true, user: { id: user.sub, email: user.email, name: user.name, picture: user.picture, provider: user.provider } });
+  } catch { res.json({ authenticated: false }); }
+});
+
+app.post('/api/auth/logout', (_req: Request, res: Response): void => {
+  res.clearCookie('user_token');
+  res.json({ success: true });
 });
 
 // ==========================================
