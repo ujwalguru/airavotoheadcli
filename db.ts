@@ -58,6 +58,35 @@ let usePostgres = false;
 const temporaryGalleryImages = new Map<string, { data: Buffer; mimeType: string; expiresAt: number }>();
 const TEMPORARY_GALLERY_TTL_MS = 10 * 60 * 1000;
 
+export async function getStorageUsage() {
+  let databaseBytes: number | null = null;
+  let databaseName: string | null = null;
+  if (usePostgres && pgPool) {
+    try {
+      const result = await pgPool.query(`SELECT current_database() AS name, pg_database_size(current_database()) AS bytes`);
+      databaseName = result.rows[0]?.name ?? null;
+      databaseBytes = Number(result.rows[0]?.bytes ?? 0);
+    } catch {
+      databaseBytes = null;
+    }
+  }
+  let fallbackBytes = 0;
+  try { fallbackBytes = fs.statSync(DATA_FILE).size; } catch { /* file may not exist */ }
+  let temporaryImageBytes = 0;
+  let temporaryImageCount = 0;
+  const now = Date.now();
+  for (const [slug, image] of temporaryGalleryImages) {
+    if (image.expiresAt <= now) temporaryGalleryImages.delete(slug);
+    else { temporaryImageCount += 1; temporaryImageBytes += image.data.byteLength; }
+  }
+  return {
+    database: { provider: usePostgres ? 'PostgreSQL' : 'file fallback', name: databaseName, bytes: databaseBytes, megabytes: databaseBytes === null ? null : Number((databaseBytes / 1024 / 1024).toFixed(2)) },
+    fallbackFile: { path: DATA_FILE, bytes: fallbackBytes, megabytes: Number((fallbackBytes / 1024 / 1024).toFixed(2)) },
+    temporaryGallery: { count: temporaryImageCount, bytes: temporaryImageBytes, kilobytes: Number((temporaryImageBytes / 1024).toFixed(2)), ttlMinutes: TEMPORARY_GALLERY_TTL_MS / 60000 },
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 /**
  * Initialize Database connection and tables
  */

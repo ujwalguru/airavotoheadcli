@@ -30,10 +30,11 @@ import { PosTesterModal } from './components/PosTesterModal';
 import { SecurityLogsView } from './components/SecurityLogsView';
 import { SystemHealthView } from './components/SystemHealthView';
 import { CafeLiveDashboard } from './components/CafeLiveDashboard';
+import { StorageUsageView } from './components/StorageUsageView';
 import { SuspendAuthModal } from './components/SuspendAuthModal';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'logs' | 'health' | 'live'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'dashboard' | 'logs' | 'health' | 'live' | 'storage'>('dashboard');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [adminUser, setAdminUser] = useState<{ username: string } | null>(null);
 
@@ -281,6 +282,16 @@ export default function App() {
           >
             System Health
           </button>
+          <button
+            onClick={() => setCurrentTab('storage')}
+            className={`w-full flex items-center px-4 py-3 rounded-md text-sm font-medium transition-colors ${
+              currentTab === 'storage'
+                ? 'bg-neutral-800 border-l-2 border-purple-500 text-white'
+                : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
+            }`}
+          >
+            Storage Usage
+          </button>
         </nav>
         <div className="p-4 border-t border-neutral-800">
           <div className="bg-neutral-800/50 rounded-lg p-3 mb-4">
@@ -429,6 +440,12 @@ export default function App() {
         {currentTab === 'live' && (
           <div className="animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
             <CafeLiveDashboard />
+          </div>
+        )}
+
+        {currentTab === 'storage' && (
+          <div className="animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
+            <StorageUsageView />
           </div>
         )}
       </main>

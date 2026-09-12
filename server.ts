@@ -25,7 +25,7 @@ import {
   getCafeById,
   createCafe,
   updateCafeStatus,
-  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, saveCafeGalleryImage, getCafeGalleryImage, refreshCafeGalleryImage, removeDuplicateCafeSlug,
+  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, getStorageUsage, saveCafeGalleryImage, getCafeGalleryImage, refreshCafeGalleryImage, removeDuplicateCafeSlug,
 } from './db.js';
 
 dotenv.config();
@@ -400,7 +400,13 @@ app.get('/api/admin/health', requireAdminAuth, async (_req: Request, res: Respon
     }
   });
 });
-
+app.get('/api/admin/storage', requireAdminAuth, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    res.json({ success: true, storage: await getStorageUsage() });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error?.message || 'Unable to read storage usage.' });
+  }
+});
 app.get('/api/admin/live-status', requireAdminAuth, async (_req: Request, res: Response): Promise<void> => {
   try {
     const liveStatus = await getLiveStatus();
