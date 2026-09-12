@@ -311,9 +311,10 @@ export async function saveCafeGalleryImage(apiKey: string, slugHint: string, dat
   const cafe = usePostgres && pgPool
     ? (await pgPool.query('SELECT slug FROM cafes WHERE ($1 <> \'\' AND api_key = $1) OR ($2 <> \'\' AND lower(slug) = lower($2)) LIMIT 1', [apiKey, slugHint])).rows[0]
     : readLocalCafes().find((item) => item.api_key === apiKey || String(item.slug || '').toLowerCase() === slugHint.toLowerCase());
-  if (!cafe?.slug) return null;
-  temporaryGalleryImages.set(cafe.slug, { data, mimeType, expiresAt: Date.now() + TEMPORARY_GALLERY_TTL_MS });
-  return cafe.slug;
+  const resolvedSlug = String(cafe?.slug || slugHint || '').trim().toLowerCase();
+  if (!resolvedSlug) return null;
+  temporaryGalleryImages.set(resolvedSlug, { data, mimeType, expiresAt: Date.now() + TEMPORARY_GALLERY_TTL_MS });
+  return resolvedSlug;
 }
 
 export async function getCafeGalleryImage(slug: string): Promise<{ data: Buffer; mimeType: string } | null> {
