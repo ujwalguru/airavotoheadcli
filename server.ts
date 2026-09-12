@@ -785,29 +785,36 @@ function formatListing(listing: DirectoryListing) {
 
 /** Stores one POS image in the Render database and returns a public Render URL. */
 app.post('/api/directory/image-upload', rateLimit('image-upload', 20, 60 * 60 * 1000), requireHeartbeatSecret, express.json({ limit: '12mb' }), async (req: Request, res: Response): Promise<void> => {
+  const uploadId = randomBytes(6).toString('hex');
   try {
     const dataUrl = String(req.body?.dataUrl || '');
     const match = dataUrl.match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
     if (!match) {
+      console.error(`[gallery-upload:${uploadId}] invalid data URL`);
       res.status(400).json({ success: false, message: 'Invalid image data. Use a JPEG, PNG, or WebP image.' });
       return;
     }
     const mimeType = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
     const imageBuffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
     if (imageBuffer.byteLength > 307200) {
+      console.error(`[gallery-upload:${uploadId}] image too large: ${imageBuffer.byteLength} bytes`);
       res.status(413).json({ success: false, message: 'Image must be 300 KB or smaller.' });
       return;
     }
     const apiKey = String(req.headers['x-api-key'] || '').trim();
     const slugHint = String(req.headers['x-cafe-slug'] || '').trim();
+    console.log(`[gallery-upload:${uploadId}] received ${mimeType}, ${imageBuffer.byteLength} bytes, slug=${slugHint || '(none)'}, apiKey=${apiKey ? 'present' : 'missing'}`);
     const slug = await saveCafeGalleryImage(apiKey, slugHint, imageBuffer, mimeType);
     if (!slug || (!apiKey && !slugHint)) {
+      console.error(`[gallery-upload:${uploadId}] identity failed: resolvedSlug=${slug || '(none)'}`);
       res.status(401).json({ success: false, message: 'A valid cafe API key is required for image upload.' });
       return;
     }
-    const publicUrl = `${req.protocol}://${req.get('host')}/api/directory/${encodeURIComponent(slug)}/gallery-image`;
+    const publicUrl = `${PUBLIC_API_URL}/api/directory/${encodeURIComponent(slug)}/gallery-image`;
+    console.log(`[gallery-upload:${uploadId}] success: slug=${slug}, url=${publicUrl}`);
     res.status(200).json({ success: true, url: publicUrl, storage: 'temporary-memory' });
   } catch (error: any) {
+    console.error(`[gallery-upload:${uploadId}] 500:`, error?.stack || error?.message || error);
     res.status(500).json({ success: false, message: error?.message || 'Image upload failed.' });
   }
 });
@@ -817,6 +824,7 @@ app.get('/api/directory/:slug/gallery-image', rateLimit('gallery-image', 120, 60
     const image = await getCafeGalleryImage(String(req.params.slug || '').trim().toLowerCase());
     if (!image) { res.status(404).end(); return; }
     res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.type(image.mimeType).send(image.data);
   } catch (error: any) {
     res.status(500).json({ success: false, message: error?.message || 'Gallery image unavailable.' });
