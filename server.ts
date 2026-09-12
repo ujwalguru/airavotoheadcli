@@ -25,7 +25,7 @@ import {
   getCafeById,
   createCafe,
   updateCafeStatus,
-  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, saveCafeGalleryImage, getCafeGalleryImage, removeDuplicateCafeSlug,
+  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, saveCafeGalleryImage, getCafeGalleryImage, refreshCafeGalleryImage, removeDuplicateCafeSlug,
 } from './db.js';
 
 dotenv.config();
@@ -868,6 +868,7 @@ app.post('/api/directory/heartbeat', rateLimit('heartbeat', 60, 60 * 1000), requ
     }
     const normalizedSlug = cafeByApiKey?.slug || requestedSlug;
     const existingCafe = await findCafeBySlug(normalizedSlug) || cafeByApiKey;
+    refreshCafeGalleryImage(normalizedSlug);
     if (existingCafe?.status === 'suspended') {
       res.status(423).json({
         success: false,
