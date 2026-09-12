@@ -801,12 +801,12 @@ app.post('/api/directory/image-upload', rateLimit('image-upload', 20, 60 * 60 * 
     const apiKey = String(req.headers['x-api-key'] || '').trim();
     const slugHint = String(req.headers['x-cafe-slug'] || '').trim();
     const slug = await saveCafeGalleryImage(apiKey, slugHint, imageBuffer, mimeType);
-    if (!slug) {
+    if (!slug || (!apiKey && !slugHint)) {
       res.status(401).json({ success: false, message: 'A valid cafe API key is required for image upload.' });
       return;
     }
     const publicUrl = `${req.protocol}://${req.get('host')}/api/directory/${encodeURIComponent(slug)}/gallery-image`;
-    res.status(200).json({ success: true, url: publicUrl, storage: 'render-database' });
+    res.status(200).json({ success: true, url: publicUrl, storage: 'temporary-memory' });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error?.message || 'Image upload failed.' });
   }
