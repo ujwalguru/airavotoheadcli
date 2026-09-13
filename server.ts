@@ -823,7 +823,7 @@ app.get('/api/directory/:slug/gallery-image', rateLimit('gallery-image', 120, 60
   try {
     const image = await getCafeGalleryImage(String(req.params.slug || '').trim().toLowerCase());
     if (!image) { res.status(404).end(); return; }
-    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.type(image.mimeType).send(image.data);
   } catch (error: any) {
