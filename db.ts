@@ -55,8 +55,7 @@ function isHeartbeatFresh(value: unknown): boolean {
 // PostgreSQL Pool instance (if configured)
 let pgPool: pg.Pool | null = null;
 let usePostgres = false;
-const temporaryGalleryImages = new Map<string, { data: Buffer; mimeType: string; expiresAt: number }>();
-const TEMPORARY_GALLERY_TTL_MS = 10 * 60 * 1000;
+const temporaryGalleryImages = new Map<string, { data: Buffer; mimeType: string }>();
 
 export async function getStorageUsage() {
   let databaseBytes: number | null = null;
@@ -76,13 +75,13 @@ export async function getStorageUsage() {
   let temporaryImageCount = 0;
   const now = Date.now();
   for (const [slug, image] of temporaryGalleryImages) {
-    if (image.expiresAt <= now) temporaryGalleryImages.delete(slug);
+    if (!(await isCafeOnline(slug))) temporaryGalleryImages.delete(slug);
     else { temporaryImageCount += 1; temporaryImageBytes += image.data.byteLength; }
   }
   return {
     database: { provider: usePostgres ? 'PostgreSQL' : 'file fallback', name: databaseName, bytes: databaseBytes, megabytes: databaseBytes === null ? null : Number((databaseBytes / 1024 / 1024).toFixed(2)) },
     fallbackFile: { path: DATA_FILE, bytes: fallbackBytes, megabytes: Number((fallbackBytes / 1024 / 1024).toFixed(2)) },
-    temporaryGallery: { count: temporaryImageCount, bytes: temporaryImageBytes, kilobytes: Number((temporaryImageBytes / 1024).toFixed(2)), ttlMinutes: TEMPORARY_GALLERY_TTL_MS / 60000 },
+    temporaryGallery: { count: temporaryImageCount, bytes: temporaryImageBytes, kilobytes: Number((temporaryImageBytes / 1024).toFixed(2)), policy: 'available while POS heartbeat is online' },
     checkedAt: new Date().toISOString(),
   };
 }
@@ -313,13 +312,29 @@ export async function saveCafeGalleryImage(apiKey: string, slugHint: string, dat
     : readLocalCafes().find((item) => item.api_key === apiKey || String(item.slug || '').toLowerCase() === slugHint.toLowerCase());
   const resolvedSlug = String(cafe?.slug || slugHint || '').trim().toLowerCase();
   if (!resolvedSlug) return null;
-  temporaryGalleryImages.set(resolvedSlug, { data, mimeType, expiresAt: Date.now() + TEMPORARY_GALLERY_TTL_MS });
+  temporaryGalleryImages.set(resolvedSlug, { data, mimeType });
   return resolvedSlug;
+}
+
+async function isCafeOnline(slug: string): Promise<boolean> {
+  const normalizedSlug = String(slug || '').trim().toLowerCase();
+  if (!normalizedSlug) return false;
+  if (usePostgres && pgPool) {
+    const result = await pgPool.query(`
+      SELECT c.status, h.created_at AS heartbeat_received_at, h.captured_at
+      FROM cafes c LEFT JOIN heartbeats h ON h.cafe_slug = c.slug
+      WHERE lower(c.slug) = $1 LIMIT 1
+    `, [normalizedSlug]);
+    const row = result.rows[0];
+    return Boolean(row && row.status === 'active' && isHeartbeatFresh(row.heartbeat_received_at || row.captured_at));
+  }
+  const cafe = readLocalCafes().find((item) => String(item.slug || '').trim().toLowerCase() === normalizedSlug);
+  return Boolean(cafe && cafe.status === 'active' && isHeartbeatFresh(cafe.updated_at || cafe.captured_at));
 }
 
 export async function getCafeGalleryImage(slug: string): Promise<{ data: Buffer; mimeType: string } | null> {
   const image = temporaryGalleryImages.get(slug);
-  if (!image || image.expiresAt <= Date.now()) {
+  if (!image || !(await isCafeOnline(slug))) {
     temporaryGalleryImages.delete(slug);
     return null;
   }
@@ -327,8 +342,7 @@ export async function getCafeGalleryImage(slug: string): Promise<{ data: Buffer;
 }
 
 export function refreshCafeGalleryImage(slug: string): void {
-  const image = temporaryGalleryImages.get(slug);
-  if (image) image.expiresAt = Date.now() + TEMPORARY_GALLERY_TTL_MS;
+  // Heartbeats determine availability; no fixed image TTL is used.
 }
 
 export async function removeDuplicateCafeSlug(slug: string, ownerApiKey: string): Promise<void> {

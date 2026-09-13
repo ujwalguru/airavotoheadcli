@@ -4,7 +4,7 @@ import { Database, HardDrive, Image, RefreshCw, Server } from 'lucide-react';
 type StorageUsage = {
   database: { provider: string; name: string | null; bytes: number | null; megabytes: number | null };
   fallbackFile: { path: string; bytes: number; megabytes: number };
-  temporaryGallery: { count: number; bytes: number; kilobytes: number; ttlMinutes: number };
+  temporaryGallery: { count: number; bytes: number; kilobytes: number; policy: string };
   checkedAt: string;
 };
 
@@ -54,7 +54,7 @@ export const StorageUsageView: React.FC = () => {
       {storage && <>
         <div className="grid gap-4 md:grid-cols-3">
           <Metric icon={<Database className="h-5 w-5" />} label="PostgreSQL database" value={formatBytes(storage.database.bytes)} detail={storage.database.name || storage.database.provider} />
-          <Metric icon={<Image className="h-5 w-5" />} label="Temporary gallery images" value={formatBytes(storage.temporaryGallery.bytes)} detail={`${storage.temporaryGallery.count} image(s), expires after ${storage.temporaryGallery.ttlMinutes} minutes`} />
+          <Metric icon={<Image className="h-5 w-5" />} label="Temporary gallery images" value={formatBytes(storage.temporaryGallery.bytes)} detail={`${storage.temporaryGallery.count} image(s), available while POS is online`} />
           <Metric icon={<HardDrive className="h-5 w-5" />} label="Fallback file storage" value={formatBytes(storage.fallbackFile.bytes)} detail={storage.fallbackFile.path} />
         </div>
         <div className="mt-6 rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
