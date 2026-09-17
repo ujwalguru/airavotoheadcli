@@ -784,7 +784,8 @@ function collectLiveCustomerData(availability: any[]) {
     const whatsappNumber = String(seat?.whatsappNumber ?? seat?.whatsapp_number ?? seat?.phone ?? '').trim();
     const startTime = seat?.startTime ?? seat?.start_time ?? null;
     const endTime = seat?.endTime ?? seat?.end_time ?? null;
-    if (customerName && whatsappNumber && isTodayAndLive(startTime, endTime)) entries.push({ category: String(device?.category ?? ''), seatName: seatIdentity(seat), customerName, whatsappNumber, startTime, endTime });
+    const isSyntheticMember = /^(member\s*\d+|pending\s*customer)$/i.test(customerName);
+    if (customerName && !isSyntheticMember && whatsappNumber && isTodayAndLive(startTime, endTime)) entries.push({ category: String(device?.category ?? ''), seatName: seatIdentity(seat), customerName, whatsappNumber, startTime, endTime });
   }
   return entries;
 }
