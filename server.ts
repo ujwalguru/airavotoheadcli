@@ -1027,7 +1027,7 @@ app.get('/api/directory', rateLimit('directory', 60, 60 * 1000), async (_req: Re
         name: listing.cafe_name,
         ...(listing.cafe_details || {}),
       },
-      availability: listing.is_online ? mergeLiveCustomerData(listing.cafe_slug, listing.devices, true) : [],
+      availability: listing.is_online ? listing.devices : [],
       configurations: publicConfigurations(listing.configurations),
       capturedAt: listing.last_heartbeat,
     }));
@@ -1061,7 +1061,7 @@ app.get('/api/directory/:slug', rateLimit('directory-detail', 60, 60 * 1000), as
           is_stale: !persisted.is_online,
           status: persisted.is_online ? 'online' : persisted.license_status === 'suspended' ? 'suspended' : 'offline',
           cafe: { id: persisted.cafe_slug, name: persisted.cafe_name, ...(persisted.cafe_details || {}) },
-          availability: persisted.is_online ? mergeLiveCustomerData(persisted.cafe_slug, persisted.devices, true) : [],
+          availability: persisted.is_online ? persisted.devices : [],
           configurations: publicConfigurations(persisted.configurations),
           capturedAt: persisted.last_heartbeat,
         },
