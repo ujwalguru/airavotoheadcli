@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight, WifiOff } from 'lucide-react';
+import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight, WifiOff, Copy } from 'lucide-react';
 import { CafeLiveStatus } from '../types';
 
 export const CafeLiveDashboard: React.FC = () => {
@@ -300,7 +300,7 @@ export const CafeLiveDashboard: React.FC = () => {
                       <div className="mt-4 overflow-x-auto bg-black border border-neutral-800 rounded-lg">
                         <table className="w-full text-left border-collapse min-w-[620px]">
                           <thead className="bg-neutral-900 border-b border-neutral-800 text-[10px] uppercase text-neutral-500 font-semibold tracking-wider">
-                            <tr><th className="px-4 py-2.5">Device</th><th className="px-4 py-2.5">Seat</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Start time</th><th className="px-4 py-2.5">End time</th></tr>
+                            <tr><th className="px-4 py-2.5">Device</th><th className="px-4 py-2.5">Seat</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Start time</th><th className="px-4 py-2.5">End time</th><th className="px-4 py-2.5">Customer</th></tr>
                           </thead>
                           <tbody className="text-xs divide-y divide-neutral-800">
                             {seatRows.map((seat: any) => {
@@ -312,6 +312,9 @@ export const CafeLiveDashboard: React.FC = () => {
                                 <td className={`px-4 py-3 font-semibold ${isAvailable ? 'text-emerald-400' : status === 'scheduled' ? 'text-amber-400' : 'text-rose-400'}`}>{isAvailable ? 'Available' : status === 'scheduled' ? 'Scheduled' : 'In use'}</td>
                                 <td className="px-4 py-3 text-neutral-300 font-mono">{formatSeatTime(seat.startTime || seat.start_time)}</td>
                                 <td className="px-4 py-3 text-neutral-300 font-mono">{formatSeatTime(seat.endTime || seat.end_time)}</td>
+                                <td className="px-4 py-3 text-neutral-300">
+                                  {seat.customerName && seat.whatsappNumber ? <div className="flex items-center gap-2"><span><span className="block text-white">{seat.customerName}</span><span className="font-mono text-[11px]">{seat.whatsappNumber}</span></span><button type="button" title="Copy customer name and number" aria-label="Copy customer name and number" className="rounded p-1 text-neutral-500 hover:bg-neutral-800 hover:text-white" onClick={() => navigator.clipboard?.writeText(`${seat.customerName} - ${seat.whatsappNumber}`)}><Copy className="w-3.5 h-3.5" /></button></div> : <span className="text-neutral-600">—</span>}
+                                </td>
                               </tr>;
                             })}
                           </tbody>

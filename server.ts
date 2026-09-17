@@ -410,7 +410,11 @@ app.get('/api/admin/storage', requireAdminAuth, async (_req: Request, res: Respo
 app.get('/api/admin/live-status', requireAdminAuth, async (_req: Request, res: Response): Promise<void> => {
   try {
     const liveStatus = await getLiveStatus();
-    res.json({ success: true, liveStatus });
+    const adminLiveStatus = liveStatus.map((cafe: any) => ({
+      ...cafe,
+      devices: cafe.is_online ? mergeLiveCustomerData(cafe.cafe_slug, cafe.devices) : cafe.devices,
+    }));
+    res.json({ success: true, liveStatus: adminLiveStatus });
   } catch (err) {
     res.status(500).json({ error: 'Internal Server Error' });
   }
@@ -732,7 +736,8 @@ interface DirectoryListing {
   lastUpdate: number;
 }
 const directoryData: Record<string, DirectoryListing> = {};
-
+type LiveCustomerEntry = { category: string; seatName: string; customerName: string; whatsappNumber: string; startTime: string | null; endTime: string | null };
+const liveCustomerData: Record<string, { updatedAt: number; entries: LiveCustomerEntry[] }> = {};
 const PRIVATE_FIELD_PATTERN = /(^|_)(api[_-]?key|password|secret|token|authorization|owner[_-]?email)($|_)/i;
 function stripPrivateFields(value: unknown): any {
   if (Array.isArray(value)) return value.map(stripPrivateFields);
@@ -757,7 +762,40 @@ function publicConfigurations(configurations: any) {
     foodItems: Array.isArray(config.foodItems) ? stripPrivateFields(config.foodItems) : [],
   };
 }
-
+function isTodayAndLive(startTime: unknown, endTime: unknown) {
+  const end = new Date(String(endTime || '')).getTime();
+  const startDate = new Date(String(startTime || endTime || ''));
+  return Number.isFinite(end) && end >= Date.now() && startDate.toDateString() === new Date().toDateString();
+}
+function seatIdentity(value: any) { return String(value?.seatName ?? value?.seat_name ?? value?.name ?? value?.label ?? value?.id ?? '').trim().toLowerCase(); }
+function sanitizeAvailability(value: any[]) {
+  return (Array.isArray(value) ? value : []).map((device: any) => ({
+    ...device,
+    seats: Array.isArray(device?.seats) ? device.seats.map((seat: any) => {
+      const { customerName, customer_name, whatsappNumber, whatsapp_number, phone, phoneNumber, phone_number, ...safeSeat } = seat || {};
+      return safeSeat;
+    }) : device?.seats,
+  }));
+}
+function collectLiveCustomerData(availability: any[]) {
+  const entries: LiveCustomerEntry[] = [];
+  for (const device of Array.isArray(availability) ? availability : []) for (const seat of Array.isArray(device?.seats) ? device.seats : []) {
+    const customerName = String(seat?.customerName ?? seat?.customer_name ?? '').trim();
+    const whatsappNumber = String(seat?.whatsappNumber ?? seat?.whatsapp_number ?? seat?.phone ?? '').trim();
+    const startTime = seat?.startTime ?? seat?.start_time ?? null;
+    const endTime = seat?.endTime ?? seat?.end_time ?? null;
+    if (customerName && whatsappNumber && isTodayAndLive(startTime, endTime)) entries.push({ category: String(device?.category ?? ''), seatName: seatIdentity(seat), customerName, whatsappNumber, startTime, endTime });
+  }
+  return entries;
+}
+function mergeLiveCustomerData(slug: string, devices: any[]) {
+  const live = liveCustomerData[slug];
+  if (!live || Date.now() - live.updatedAt > 3 * 60 * 1000) return devices;
+  return (Array.isArray(devices) ? devices : []).map((device: any) => ({ ...device, seats: Array.isArray(device?.seats) ? device.seats.map((seat: any) => {
+    const match = live.entries.find((entry) => entry.category.toLowerCase() === String(device?.category ?? '').toLowerCase() && entry.seatName === seatIdentity(seat));
+    return match ? { ...seat, customerName: match.customerName, whatsappNumber: match.whatsappNumber, customerStartTime: match.startTime, customerEndTime: match.endTime } : seat;
+  }) : device?.seats }));
+}
 function formatListing(listing: DirectoryListing) {
   const isStale = (Date.now() - listing.lastUpdate) > 3 * 60 * 1000; // 3 minutes threshold
   const formattedData = stripPrivateFields(listing.data);
@@ -898,14 +936,17 @@ app.post('/api/directory/heartbeat', rateLimit('heartbeat', 60, 60 * 1000), requ
     const publicMetadata = payload.cafe ? { ...payload.cafe } : {};
     delete publicMetadata.name;
     delete publicMetadata.categories;
+    const availability = Array.isArray(payload.availability) ? payload.availability : [];
+    const safeAvailability = sanitizeAvailability(availability);
+    liveCustomerData[normalizedSlug] = { updatedAt: Date.now(), entries: collectLiveCustomerData(availability) };
 
     // Persist to DB
-    const syncResult = await syncCafeHeartbeat(normalizedSlug, cafeName, categories, publicMetadata, payload.availability || [], capturedAt, payload.configurations || null);
+    const syncResult = await syncCafeHeartbeat(normalizedSlug, cafeName, categories, publicMetadata, safeAvailability, capturedAt, payload.configurations || null);
 
     // Also update in-memory directory
     directoryData[normalizedSlug] = {
       slug: normalizedSlug,
-      data: cleanPayload,
+      data: { ...cleanPayload, availability: safeAvailability },
       lastUpdate: Date.now()
     };
 
@@ -986,7 +1027,7 @@ app.get('/api/directory', rateLimit('directory', 60, 60 * 1000), async (_req: Re
         name: listing.cafe_name,
         ...(listing.cafe_details || {}),
       },
-      availability: listing.is_online ? listing.devices : [],
+      availability: listing.is_online ? mergeLiveCustomerData(listing.cafe_slug, listing.devices, true) : [],
       configurations: publicConfigurations(listing.configurations),
       capturedAt: listing.last_heartbeat,
     }));
@@ -1020,7 +1061,7 @@ app.get('/api/directory/:slug', rateLimit('directory-detail', 60, 60 * 1000), as
           is_stale: !persisted.is_online,
           status: persisted.is_online ? 'online' : persisted.license_status === 'suspended' ? 'suspended' : 'offline',
           cafe: { id: persisted.cafe_slug, name: persisted.cafe_name, ...(persisted.cafe_details || {}) },
-          availability: persisted.is_online ? persisted.devices : [],
+          availability: persisted.is_online ? mergeLiveCustomerData(persisted.cafe_slug, persisted.devices, true) : [],
           configurations: publicConfigurations(persisted.configurations),
           capturedAt: persisted.last_heartbeat,
         },
