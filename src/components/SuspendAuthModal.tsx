@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { ShieldAlert, X } from 'lucide-react';
+import { ShieldAlert, X, KeyRound } from 'lucide-react';
 import { Cafe } from '../types';
 
 interface SuspendAuthModalProps {
   cafe: Cafe | null;
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (cafe: Cafe) => Promise<void>;
+  onConfirm: (cafe: Cafe, credentials: { username: string; password: string; otp: string }) => Promise<void>;
+  action?: 'suspend' | 'delete';
 }
 
 export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
@@ -14,13 +15,16 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
   isOpen,
   onClose,
   onConfirm,
+  action = 'suspend',
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   if (!isOpen || !cafe) return null;
+  const isDelete = action === 'delete';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +38,7 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, otp }),
       });
       const data = await res.json();
       
@@ -43,11 +47,12 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
       }
       
       // If successful, proceed with suspension
-      await onConfirm(cafe);
+      await onConfirm(cafe, { username, password, otp });
       
       // Reset and close
       setUsername('');
       setPassword('');
+      setOtp('');
       onClose();
     } catch (err: any) {
       setError(err.message || 'Authentication failed');
@@ -66,7 +71,7 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">Authorization Required</h2>
-              <p className="text-xs text-neutral-400">Suspend Cafe #{cafe.id}</p>
+              <p className="text-xs text-neutral-400">{isDelete ? 'Delete' : 'Suspend'} Cafe #{cafe.id}</p>
             </div>
           </div>
           <button
@@ -79,8 +84,8 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
 
         <div className="p-6">
           <p className="text-sm text-neutral-300 mb-6 leading-relaxed">
-            You are about to suspend <strong className="text-white">{cafe.cafe_name}</strong>. 
-            This will immediately revoke their API access. Please confirm your admin credentials to proceed.
+            You are about to {isDelete ? 'permanently delete' : 'suspend'} <strong className="text-white">{cafe.cafe_name}</strong>.
+            {isDelete ? 'This removes the cafe and its stored live-monitor data and cannot be undone.' : 'This will immediately revoke their API access.'} Please confirm your admin credentials and OTP to proceed.
           </p>
 
           {error && (
@@ -116,6 +121,25 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
                 required
               />
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">
+                Security OTP
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className="w-full pl-9 pr-3 py-2 bg-black border border-neutral-800 rounded-md text-white placeholder-neutral-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 text-sm transition"
+                  placeholder="Enter 6-digit OTP"
+                  required
+                />
+              </div>
+            </div>
 
             <div className="pt-4 flex gap-3">
               <button
@@ -133,7 +157,7 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
                 {loading ? (
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 ) : (
-                  'Suspend Cafe'
+                  isDelete ? 'Delete Cafe' : 'Suspend Cafe'
                 )}
               </button>
             </div>

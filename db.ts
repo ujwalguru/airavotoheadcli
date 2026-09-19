@@ -490,6 +490,54 @@ export async function updateCafeStatus(id: number, status: 'active' | 'suspended
   return cafes[index];
 }
 
+/** Permanently remove a cafe and its heartbeat/configuration snapshots. */
+export async function deleteCafe(id: number): Promise<Cafe | null> {
+  if (usePostgres && pgPool) {
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      const cafeResult = await client.query('SELECT * FROM cafes WHERE id = $1 FOR UPDATE', [id]);
+      if (cafeResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+
+      const row = cafeResult.rows[0];
+      const cafe: Cafe = {
+        id: row.id,
+        cafe_name: row.cafe_name,
+        owner_name: row.owner_name,
+        email: row.email,
+        api_key: row.api_key,
+        status: row.status,
+        created_at: new Date(row.created_at).toISOString(),
+      };
+      const slug = String(row.slug || '');
+      if (slug) await client.query('DELETE FROM heartbeats WHERE cafe_slug = $1', [slug]);
+      await client.query('DELETE FROM cafe_device_configs WHERE cafe_id = $1', [slug || String(id)]);
+      await client.query('DELETE FROM cafe_pricing_configs WHERE cafe_id = $1', [slug || String(id)]);
+      await client.query('DELETE FROM cafe_happy_hours WHERE cafe_id = $1', [slug || String(id)]);
+      await client.query('DELETE FROM cafe_happy_hours_pricing WHERE cafe_id = $1', [slug || String(id)]);
+      await client.query('DELETE FROM cafes WHERE id = $1', [id]);
+      await client.query('COMMIT');
+      if (slug) temporaryGalleryImages.delete(slug.toLowerCase());
+      return cafe;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  const cafes = readLocalCafes();
+  const cafe = cafes.find((item) => item.id === id) || null;
+  if (!cafe) return null;
+  writeLocalCafes(cafes.filter((item) => item.id !== id));
+  if (cafe.slug) temporaryGalleryImages.delete(cafe.slug.toLowerCase());
+  return cafe;
+}
+
 export async function findCafeByApiKey(apiKey: string): Promise<Cafe | null> {
   if (usePostgres && pgPool) {
     const res = await pgPool.query('SELECT * FROM cafes WHERE api_key = $1', [apiKey]);

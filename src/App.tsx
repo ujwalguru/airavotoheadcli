@@ -48,6 +48,7 @@ export default function App() {
   // Modals state
   const [isPosTesterOpen, setIsPosTesterOpen] = useState<boolean>(false);
   const [suspendModalCafe, setSuspendModalCafe] = useState<Cafe | null>(null);
+  const [authAction, setAuthAction] = useState<'suspend' | 'delete'>('suspend');
 
   // Check authentication status on startup
   const checkAuth = useCallback(async () => {
@@ -134,7 +135,7 @@ export default function App() {
   };
 
   // Actually perform the toggle (called directly for activate, or after auth for suspend)
-  const performToggleStatus = async (cafe: Cafe) => {
+  const performToggleStatus = async (cafe: Cafe, credentials?: { username: string; password: string; otp: string }) => {
     const isActivating = cafe.status === 'suspended';
     const endpoint = isActivating
       ? `/api/admin/cafes/${cafe.id}/activate`
@@ -154,6 +155,7 @@ export default function App() {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers,
+        body: JSON.stringify(credentials || {}),
       });
 
       const data = await res.json();
@@ -189,7 +191,31 @@ export default function App() {
     if (isActivating) {
       await performToggleStatus(cafe);
     } else {
+      setAuthAction('suspend');
       setSuspendModalCafe(cafe);
+    }
+  };
+
+  const performDelete = async (cafe: Cafe, credentials: { username: string; password: string; otp: string }) => {
+    setActionLoadingId(cafe.id);
+    try {
+      const token = localStorage.getItem('admin_token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`/api/admin/cafes/${cafe.id}`, {
+        method: 'DELETE',
+        headers,
+        body: JSON.stringify(credentials),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to delete cafe');
+      setCafes((prev) => prev.filter((item) => item.id !== cafe.id));
+      setCounts((prev) => ({ ...prev, total: Math.max(0, prev.total - 1), active: cafe.status === 'active' ? Math.max(0, prev.active - 1) : prev.active, suspended: cafe.status === 'suspended' ? Math.max(0, prev.suspended - 1) : prev.suspended }));
+      setSuspendModalCafe(null);
+    } catch (err: any) {
+      alert(err.message || 'Error deleting cafe');
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -439,7 +465,15 @@ export default function App() {
 
         {currentTab === 'live' && (
           <div className="animate-in fade-in duration-200 flex-1 flex flex-col overflow-hidden">
-            <CafeLiveDashboard />
+            <CafeLiveDashboard
+              onRequestDelete={(liveCafe) => {
+                const cafe = cafes.find((item) => item.id === liveCafe.cafe_id);
+                if (cafe) {
+                  setAuthAction('delete');
+                  setSuspendModalCafe(cafe);
+                }
+              }}
+            />
           </div>
         )}
 
@@ -455,7 +489,8 @@ export default function App() {
         cafe={suspendModalCafe}
         isOpen={!!suspendModalCafe}
         onClose={() => setSuspendModalCafe(null)}
-        onConfirm={performToggleStatus}
+        onConfirm={authAction === 'delete' ? performDelete : performToggleStatus}
+        action={authAction}
       />
 
       {/* 1. Modal: POS Verification Tester & Python Code */}

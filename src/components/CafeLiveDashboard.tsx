@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight, WifiOff, Copy } from 'lucide-react';
+import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight, WifiOff, Copy, Trash2 } from 'lucide-react';
 import { CafeLiveStatus } from '../types';
 
-export const CafeLiveDashboard: React.FC = () => {
+interface CafeLiveDashboardProps {
+  onRequestDelete: (cafe: CafeLiveStatus) => void;
+}
+
+export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestDelete }) => {
   const [liveData, setLiveData] = useState<CafeLiveStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -175,7 +179,7 @@ export const CafeLiveDashboard: React.FC = () => {
           {[selectedCafe].map((cafe) => (
             <div key={cafe.cafe_id} className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden flex flex-col">
               {/* Card Header */}
-              <div className="p-5 border-b border-neutral-800 bg-black/40 flex justify-between items-start">
+              <div className="p-5 border-b border-neutral-800 bg-black/40 flex justify-between items-start gap-4">
                 <div>
                   <h3 className="font-bold text-white text-lg flex items-center gap-2">
                     {cafe.cafe_name}
@@ -187,6 +191,14 @@ export const CafeLiveDashboard: React.FC = () => {
                   <p className="text-xs text-neutral-500 font-mono mt-1">Cafe ID: #{cafe.cafe_id}</p>
                   <p className="text-[10px] text-neutral-600 mt-1">Last POS sync: {formatSyncedTime((cafe as CafeLiveStatus & { last_heartbeat?: string }).last_heartbeat)}</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => onRequestDelete(cafe)}
+                  className="shrink-0 inline-flex items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 hover:text-rose-200"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Cafe
+                </button>
               </div>
 
               <div className="p-5 flex-1 flex flex-col gap-6">

@@ -24,7 +24,7 @@ import {
   getAllCafes,
   getCafeById,
   createCafe,
-  updateCafeStatus,
+  updateCafeStatus, deleteCafe,
   findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, getStorageUsage, saveCafeGalleryImage, getCafeGalleryImage, refreshCafeGalleryImage, removeDuplicateCafeSlug,
 } from './db.js';
 
@@ -37,6 +37,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production' || Boolean(process.e
 // Never use predictable production credentials or JWT secrets.
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_OTP = process.env.ADMIN_OTP?.trim() || '';
 const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
 const HEARTBEAT_SECRET = process.env.HEARTBEAT_SECRET?.trim() || '';
 const THEGAMESDB_API_KEY = process.env.THEGAMESDB_API_KEY?.trim() || '';
@@ -135,7 +136,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
   
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Api-Key,X-Heartbeat-Secret,X-Cafe-Slug');
   res.setHeader('Vary', 'Origin');
 
@@ -210,6 +211,12 @@ function requireAdminAuth(req: Request, res: Response, next: NextFunction): void
   }
 }
 
+function actionChallengeMatches(body: any): boolean {
+  return secretsMatch(body?.username, ADMIN_USERNAME)
+    && secretsMatch(body?.password, ADMIN_PASSWORD)
+    && secretsMatch(String(body?.otp || ''), ADMIN_OTP);
+}
+
 function googleConfigured() {
   return Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REDIRECT_URI && FRONTEND_URL);
 }
@@ -235,21 +242,21 @@ function safeFrontendRedirect(value: unknown) {
  * Verifies username and password against environment variables and issues JWT token
  */
 app.post('/api/admin/login', rateLimit('admin-login', 10, 15 * 60 * 1000), (req: Request, res: Response): void => {
-  const { username, password } = req.body;
+  const { username, password, otp } = req.body;
 
-  if (!username || !password) {
-    res.status(400).json({ error: 'Bad Request', message: 'Username and password are required' });
+  if (!username || !password || !otp) {
+    res.status(400).json({ error: 'Bad Request', message: 'Username, password, and six-digit OTP are required' });
     return;
   }
 
   // Refuse authentication when production credentials were not configured.
-  if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
-    res.status(503).json({ error: 'Service Unavailable', message: 'Admin authentication is not configured.' });
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD || !ADMIN_OTP) {
+    res.status(503).json({ error: 'Service Unavailable', message: 'Admin authentication and OTP are not configured.' });
     return;
   }
 
   // Compare with environment variables
-  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+  if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD && secretsMatch(String(otp), ADMIN_OTP)) {
     const token = jwt.sign(
       { username: ADMIN_USERNAME, role: 'super_admin' },
       JWT_SECRET,
@@ -277,7 +284,7 @@ app.post('/api/admin/login', rateLimit('admin-login', 10, 15 * 60 * 1000), (req:
     addLog('warn', 'Failed Admin Login', `Invalid login attempt for username '${username}'.`);
     res.status(401).json({
       error: 'Unauthorized',
-      message: 'Invalid admin username or password',
+      message: 'Invalid admin username, password, or OTP',
     });
   }
 });
@@ -490,6 +497,10 @@ app.post('/api/admin/cafes', requireAdminAuth, async (req: Request, res: Respons
  */
 app.post('/api/admin/cafes/:id/suspend', requireAdminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (!actionChallengeMatches(req.body)) {
+      res.status(401).json({ error: 'Unauthorized', message: 'Username, password, and valid six-digit OTP are required.' });
+      return;
+    }
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) {
       res.status(400).json({ error: 'Bad Request', message: 'Invalid Cafe ID' });
@@ -512,6 +523,34 @@ app.post('/api/admin/cafes/:id/suspend', requireAdminAuth, async (req: Request, 
   } catch (err) {
     console.error('Error suspending cafe:', err);
     res.status(500).json({ error: 'Internal Server Error', message: 'Failed to suspend cafe' });
+  }
+});
+
+/**
+ * DELETE /api/admin/cafes/:id
+ * Permanently removes a cafe and its stored live-monitor snapshots.
+ */
+app.delete('/api/admin/cafes/:id', requireAdminAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!actionChallengeMatches(req.body)) {
+      res.status(401).json({ error: 'Unauthorized', message: 'Username, password, and valid six-digit OTP are required.' });
+      return;
+    }
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: 'Bad Request', message: 'Invalid Cafe ID' });
+      return;
+    }
+    const deleted = await deleteCafe(id);
+    if (!deleted) {
+      res.status(404).json({ error: 'Not Found', message: `Cafe with ID ${id} not found` });
+      return;
+    }
+    addLog('warn', 'Cafe Deleted', `Cafe #${id} ('${deleted.cafe_name}') permanently deleted by admin.`);
+    res.json({ success: true, message: `Cafe #${id} (${deleted.cafe_name}) has been permanently deleted` });
+  } catch (err) {
+    console.error('Error deleting cafe:', err);
+    res.status(500).json({ error: 'Internal Server Error', message: 'Failed to delete cafe' });
   }
 });
 

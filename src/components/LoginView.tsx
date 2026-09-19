@@ -13,6 +13,7 @@ interface LoginViewProps {
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('admin123');
+  const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +26,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       const res = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, otp }),
       });
 
       const data = await res.json();
@@ -101,6 +102,27 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">
+                Security OTP
+              </label>
+              <div className="relative">
+                <KeyRound className="w-4 h-4 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  id="admin-otp-input"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  required
+                  className="w-full pl-9 pr-3 py-2 bg-black border border-neutral-800 rounded-md text-white placeholder-neutral-500 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 text-sm transition"
+                  placeholder="Enter 6-digit OTP"
+                />
+              </div>
+            </div>
+
             <button
               id="admin-login-button"
               type="submit"
@@ -119,7 +141,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             <p className="text-xs text-neutral-500 leading-relaxed">
               Default credentials: <span className="text-neutral-300 font-mono">admin</span> / <span className="text-neutral-300 font-mono">admin123</span>
               <br />
-              Configurable via <code className="text-purple-500">ADMIN_USERNAME</code> and <code className="text-purple-500">ADMIN_PASSWORD</code> env variables.
+              Configurable via <code className="text-purple-500">ADMIN_USERNAME</code>, <code className="text-purple-500">ADMIN_PASSWORD</code>, and <code className="text-purple-500">ADMIN_OTP</code> env variables.
             </p>
           </div>
         </div>
