@@ -49,6 +49,7 @@ export default function App() {
   const [isPosTesterOpen, setIsPosTesterOpen] = useState<boolean>(false);
   const [suspendModalCafe, setSuspendModalCafe] = useState<Cafe | null>(null);
   const [authAction, setAuthAction] = useState<'suspend' | 'delete'>('suspend');
+  const [deleteSelection, setDeleteSelection] = useState<Cafe[]>([]);
 
   // Check authentication status on startup
   const checkAuth = useCallback(async () => {
@@ -197,20 +198,25 @@ export default function App() {
   };
 
   const performDelete = async (cafe: Cafe, credentials: { username: string; password: string; otp: string }) => {
+    const targets = deleteSelection.length > 0 ? deleteSelection : [cafe];
     setActionLoadingId(cafe.id);
     try {
       const token = localStorage.getItem('admin_token');
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers.Authorization = `Bearer ${token}`;
-      const res = await fetch(`/api/admin/cafes/${cafe.id}`, {
-        method: 'DELETE',
-        headers,
-        body: JSON.stringify(credentials),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to delete cafe');
-      setCafes((prev) => prev.filter((item) => item.id !== cafe.id));
-      setCounts((prev) => ({ ...prev, total: Math.max(0, prev.total - 1), active: cafe.status === 'active' ? Math.max(0, prev.active - 1) : prev.active, suspended: cafe.status === 'suspended' ? Math.max(0, prev.suspended - 1) : prev.suspended }));
+      for (const target of targets) {
+        const res = await fetch(`/api/admin/cafes/${target.id}`, {
+          method: 'DELETE',
+          headers,
+          body: JSON.stringify(credentials),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || `Failed to delete cafe #${target.id}`);
+      }
+      const deletedIds = new Set(targets.map((target) => target.id));
+      setCafes((prev) => prev.filter((item) => !deletedIds.has(item.id)));
+      setCounts((prev) => ({ ...prev, total: Math.max(0, prev.total - targets.length), active: Math.max(0, prev.active - targets.filter((target) => target.status === 'active').length), suspended: Math.max(0, prev.suspended - targets.filter((target) => target.status === 'suspended').length) }));
+      setDeleteSelection([]);
       setSuspendModalCafe(null);
     } catch (err: any) {
       alert(err.message || 'Error deleting cafe');
@@ -470,7 +476,16 @@ export default function App() {
                 const cafe = cafes.find((item) => item.id === liveCafe.cafe_id);
                 if (cafe) {
                   setAuthAction('delete');
+                  setDeleteSelection([cafe]);
                   setSuspendModalCafe(cafe);
+                }
+              }}
+              onRequestDeleteMany={(liveCafes) => {
+                const selected = liveCafes.map((liveCafe) => cafes.find((item) => item.id === liveCafe.cafe_id)).filter((cafe): cafe is Cafe => Boolean(cafe));
+                if (selected.length > 0) {
+                  setAuthAction('delete');
+                  setDeleteSelection(selected);
+                  setSuspendModalCafe(selected[0]);
                 }
               }}
             />
@@ -488,9 +503,10 @@ export default function App() {
       <SuspendAuthModal
         cafe={suspendModalCafe}
         isOpen={!!suspendModalCafe}
-        onClose={() => setSuspendModalCafe(null)}
+        onClose={() => { setSuspendModalCafe(null); setDeleteSelection([]); }}
         onConfirm={authAction === 'delete' ? performDelete : performToggleStatus}
         action={authAction}
+        bulkCount={authAction === 'delete' && deleteSelection.length > 1 ? deleteSelection.length : undefined}
       />
 
       {/* 1. Modal: POS Verification Tester & Python Code */}

@@ -4,13 +4,15 @@ import { CafeLiveStatus } from '../types';
 
 interface CafeLiveDashboardProps {
   onRequestDelete: (cafe: CafeLiveStatus) => void;
+  onRequestDeleteMany: (cafes: CafeLiveStatus[]) => void;
 }
 
-export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestDelete }) => {
+export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestDelete, onRequestDeleteMany }) => {
   const [liveData, setLiveData] = useState<CafeLiveStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCafe, setSelectedCafe] = useState<CafeLiveStatus | null>(null);
+  const [selectedCafeIds, setSelectedCafeIds] = useState<Set<number>>(new Set());
 
   const fetchLiveData = useCallback(async () => {
     setLoading(true);
@@ -112,6 +114,24 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
     return [cafe.cafe_name, cafe.cafe_id, details.city, details.address, ...(details.categories || [])].some((value) => String(value ?? '').toLowerCase().includes(query));
   });
 
+  const allVisibleSelected = filteredCafes.length > 0 && filteredCafes.every((cafe) => selectedCafeIds.has(cafe.cafe_id));
+  const toggleCafeSelection = (cafeId: number) => {
+    setSelectedCafeIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(cafeId)) next.delete(cafeId); else next.add(cafeId);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedCafeIds((previous) => {
+      const next = new Set(previous);
+      if (allVisibleSelected) filteredCafes.forEach((cafe) => next.delete(cafe.cafe_id));
+      else filteredCafes.forEach((cafe) => next.add(cafe.cafe_id));
+      return next;
+    });
+  };
+
   const calculateDuration = (startTime: string) => {
     const start = new Date(startTime).getTime();
     const now = new Date().getTime();
@@ -131,14 +151,28 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
           <h2 className="text-xl font-bold text-white tracking-tight">Live Cafe Monitor</h2>
           <p className="text-sm text-neutral-400 mt-1">Real-time device availability and current customer entries.</p>
         </div>
-        <button
-          onClick={fetchLiveData}
-          disabled={loading}
-          className="p-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 rounded-md border border-neutral-800 transition flex items-center gap-2 text-xs font-medium"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <label className="inline-flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-300 cursor-pointer">
+            <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAllVisible} disabled={filteredCafes.length === 0} className="accent-purple-500" />
+            Select all
+          </label>
+          <button
+            onClick={() => onRequestDeleteMany(filteredCafes.filter((cafe) => selectedCafeIds.has(cafe.cafe_id)))}
+            disabled={selectedCafeIds.size === 0}
+            className="inline-flex items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete selected{selectedCafeIds.size > 0 ? ` (${selectedCafeIds.size})` : ''}
+          </button>
+          <button
+            onClick={fetchLiveData}
+            disabled={loading}
+            className="p-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 rounded-md border border-neutral-800 transition flex items-center gap-2 text-xs font-medium"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       <div className="mb-6 relative max-w-xl">
@@ -163,8 +197,8 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
               const inUse = cafe.devices.reduce((sum, device) => sum + Number(device.inUse || 0), 0);
               const details = getCafeDetails(cafe);
               const online = isCafeOnline(cafe);
-              return <button key={cafe.cafe_id} onClick={() => setSelectedCafe(cafe)} className={`text-left bg-neutral-900 border rounded-xl p-4 transition group ${online ? 'border-neutral-800 hover:border-purple-500' : 'border-rose-500/30 hover:border-rose-500/60'}`}>
-                <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-white">{cafe.cafe_name}</h3><p className="text-[11px] text-neutral-500 mt-1">Cafe ID: #{cafe.cafe_id}</p></div><ChevronRight className="w-4 h-4 text-neutral-600 group-hover:text-purple-400" /></div>
+              return <button key={cafe.cafe_id} onClick={() => setSelectedCafe(cafe)} className={`text-left bg-neutral-900 border rounded-xl p-4 transition group ${selectedCafeIds.has(cafe.cafe_id) ? 'border-purple-500 ring-1 ring-purple-500/50' : online ? 'border-neutral-800 hover:border-purple-500' : 'border-rose-500/30 hover:border-rose-500/60'}`}>
+                <div className="flex items-start justify-between gap-3"><div className="flex items-start gap-3"><input type="checkbox" checked={selectedCafeIds.has(cafe.cafe_id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleCafeSelection(cafe.cafe_id)} aria-label={`Select ${cafe.cafe_name}`} className="mt-1 accent-purple-500" /><div><h3 className="font-semibold text-white">{cafe.cafe_name}</h3><p className="text-[11px] text-neutral-500 mt-1">Cafe ID: #{cafe.cafe_id}</p></div></div><ChevronRight className="w-4 h-4 text-neutral-600 group-hover:text-purple-400" /></div>
                 <div className="grid grid-cols-3 gap-2 mt-4 text-xs"><span className="text-neutral-400">Seats <strong className="block text-white text-base">{total}</strong></span><span className="text-neutral-400">In use <strong className="block text-rose-400 text-base">{inUse}</strong></span><span className="text-neutral-400">Status <strong className={`block text-base ${online ? 'text-emerald-400' : 'text-rose-400'}`}><span className={`inline-block w-2 h-2 rounded-full mr-1.5 align-middle ${online ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} aria-hidden="true" />{getCafeStatusLabel(cafe)}</strong></span></div>
                 {(details.city || details.address) && <p className="text-[11px] text-neutral-500 mt-3 truncate">{[details.city, details.address].filter(Boolean).join(' · ')}</p>}
               </button>;

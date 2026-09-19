@@ -8,6 +8,7 @@ interface SuspendAuthModalProps {
   onClose: () => void;
   onConfirm: (cafe: Cafe, credentials: { username: string; password: string; otp: string }) => Promise<void>;
   action?: 'suspend' | 'delete';
+  bulkCount?: number;
 }
 
 export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
@@ -16,6 +17,7 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
   onClose,
   onConfirm,
   action = 'suspend',
+  bulkCount,
 }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -71,7 +73,7 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">Authorization Required</h2>
-              <p className="text-xs text-neutral-400">{isDelete ? 'Delete' : 'Suspend'} Cafe #{cafe.id}</p>
+              <p className="text-xs text-neutral-400">{isDelete && bulkCount ? `Delete ${bulkCount} Cafes` : `${isDelete ? 'Delete' : 'Suspend'} Cafe #${cafe.id}`}</p>
             </div>
           </div>
           <button
@@ -84,8 +86,8 @@ export const SuspendAuthModal: React.FC<SuspendAuthModalProps> = ({
 
         <div className="p-6">
           <p className="text-sm text-neutral-300 mb-6 leading-relaxed">
-            You are about to {isDelete ? 'permanently delete' : 'suspend'} <strong className="text-white">{cafe.cafe_name}</strong>.
-            {isDelete ? 'This removes the cafe and its stored live-monitor data and cannot be undone.' : 'This will immediately revoke their API access.'} Please confirm your admin credentials and OTP to proceed.
+            You are about to {isDelete ? 'permanently delete' : 'suspend'} {bulkCount ? <strong className="text-white">{bulkCount} selected cafes</strong> : <strong className="text-white">{cafe.cafe_name}</strong>}.
+            {isDelete ? 'This removes the cafe records and stored live-monitor data and cannot be undone.' : 'This will immediately revoke their API access.'} Please confirm your admin credentials and OTP to proceed.
           </p>
 
           {error && (
