@@ -45,6 +45,10 @@ export interface Cafe {
 // In-memory / file-based storage path for fallback mode
 const DATA_FILE = path.join(process.cwd(), 'cafes_data.json');
 const HEARTBEAT_TIMEOUT_MS = 3 * 60 * 1000;
+const TEMPORARY_IMAGE_MAX_BYTES = 64 * 1024 * 1024;
+const TEMPORARY_IMAGE_MAX_AGE_MS = 3 * 60 * 1000;
+const temporaryGalleryImages = new Map<string, { data: Buffer; mimeType: string; updatedAt: number }>();
+let temporaryImageBytes = 0;
 
 function isHeartbeatFresh(value: unknown): boolean {
   if (!value) return false;
@@ -55,7 +59,6 @@ function isHeartbeatFresh(value: unknown): boolean {
 // PostgreSQL Pool instance (if configured)
 let pgPool: pg.Pool | null = null;
 let usePostgres = false;
-const temporaryGalleryImages = new Map<string, { data: Buffer; mimeType: string }>();
 
 export async function getStorageUsage() {
   let databaseBytes: number | null = null;
@@ -75,13 +78,15 @@ export async function getStorageUsage() {
   let temporaryImageCount = 0;
   const now = Date.now();
   for (const [slug, image] of temporaryGalleryImages) {
-    if (!(await isCafeOnline(slug))) temporaryGalleryImages.delete(slug);
-    else { temporaryImageCount += 1; temporaryImageBytes += image.data.byteLength; }
+    if (now - image.updatedAt > TEMPORARY_IMAGE_MAX_AGE_MS || !(await isCafeOnline(slug))) {
+      temporaryGalleryImages.delete(slug);
+      temporaryImageBytes -= image.data.byteLength;
+    } else { temporaryImageCount += 1; temporaryImageBytes += image.data.byteLength; }
   }
   return {
     database: { provider: usePostgres ? 'PostgreSQL' : 'file fallback', name: databaseName, bytes: databaseBytes, megabytes: databaseBytes === null ? null : Number((databaseBytes / 1024 / 1024).toFixed(2)) },
     fallbackFile: { path: DATA_FILE, bytes: fallbackBytes, megabytes: Number((fallbackBytes / 1024 / 1024).toFixed(2)) },
-    temporaryGallery: { count: temporaryImageCount, bytes: temporaryImageBytes, kilobytes: Number((temporaryImageBytes / 1024).toFixed(2)), policy: 'available while POS heartbeat is online' },
+    temporaryGallery: { count: temporaryImageCount, bytes: temporaryImageBytes, kilobytes: Number((temporaryImageBytes / 1024).toFixed(2)), policy: 'temporary memory only; max 64 MB, max 3 minutes, evicted automatically' },
     checkedAt: new Date().toISOString(),
   };
 }
@@ -97,10 +102,14 @@ export async function initDatabase(): Promise<{cafeUpserted: boolean, heartbeatU
       console.log('Connecting to PostgreSQL database...');
       pgPool = new pg.Pool({
         connectionString: databaseUrl,
+        max: Number(process.env.PG_POOL_MAX || 20),
+        min: 0,
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: 5_000,
+        allowExitOnIdle: true,
         ssl: process.env.NODE_ENV === 'production' && !databaseUrl.includes('localhost')
           ? { rejectUnauthorized: false }
           : false,
-        connectionTimeoutMillis: 5000,
       });
 
       // Test connection
@@ -204,6 +213,15 @@ export async function initDatabase(): Promise<{cafeUpserted: boolean, heartbeatU
       `);
       await client.query(`ALTER TABLE cafe_happy_hours_pricing ADD COLUMN IF NOT EXISTS website_visible BOOLEAN DEFAULT TRUE`);
 
+      // These indexes keep slug lookups, freshness checks, and admin sorting fast as the directory grows.
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_cafes_slug_lower ON cafes (lower(slug))`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_cafes_status ON cafes (status)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_cafes_updated_at ON cafes (updated_at DESC)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_heartbeats_cafe_slug ON heartbeats (lower(cafe_slug))`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_heartbeats_captured_at ON heartbeats (captured_at DESC)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_device_configs_cafe_id ON cafe_device_configs (cafe_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_pricing_configs_cafe_id ON cafe_pricing_configs (cafe_id)`);
+
       client.release();
       usePostgres = true;
       console.log('PostgreSQL database initialized and table verified.');
@@ -262,22 +280,42 @@ function writeLocalCafes(cafes: Cafe[]): void {
 /**
  * Get all cafes ordered by creation date descending
  */
-export async function getAllCafes(): Promise<Cafe[]> {
-  if (usePostgres && pgPool) {
-    const res = await pgPool.query('SELECT * FROM cafes ORDER BY id DESC');
-    return res.rows.map((row) => ({
-      id: row.id,
-      cafe_name: row.cafe_name,
-      owner_name: row.owner_name,
-      email: row.email,
-      api_key: row.api_key,
-      status: row.status,
-      created_at: new Date(row.created_at).toISOString(),
-    }));
-  }
+export interface CafePage {
+  cafes: Cafe[];
+  total: number;
+  active: number;
+  suspended: number;
+}
 
-  const cafes = readLocalCafes();
-  return cafes.sort((a, b) => b.id - a.id);
+export async function getCafePage(options: { page?: number; pageSize?: number; search?: string; status?: string } = {}): Promise<CafePage> {
+  const page = Math.max(1, Math.floor(options.page || 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(options.pageSize || 50)));
+  const search = String(options.search || '').trim().toLowerCase();
+  const status = options.status === 'active' || options.status === 'suspended' ? options.status : '';
+  const offset = (page - 1) * pageSize;
+  if (usePostgres && pgPool) {
+    const values: unknown[] = [];
+    const where: string[] = [];
+    if (search) {
+      values.push(`%${search}%`);
+      where.push(`(lower(cafe_name) LIKE $${values.length} OR lower(owner_name) LIKE $${values.length} OR lower(email) LIKE $${values.length} OR lower(coalesce(slug, '')) LIKE $${values.length} OR cast(id AS text) LIKE $${values.length})`);
+    }
+    const searchClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const stats = await pgPool.query(`SELECT count(*)::int AS total, count(*) FILTER (WHERE status = 'active')::int AS active, count(*) FILTER (WHERE status = 'suspended')::int AS suspended FROM cafes ${searchClause}`, values);
+    if (status) { values.push(status); where.push(`status = $${values.length}`); }
+    const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const filteredCount = await pgPool.query(`SELECT count(*)::int AS total FROM cafes ${clause}`, values);
+    values.push(pageSize, offset);
+    const rows = await pgPool.query(`SELECT id, cafe_name, owner_name, email, api_key, status, created_at, slug FROM cafes ${clause} ORDER BY id DESC LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
+    return { cafes: rows.rows.map((row) => ({ ...row, created_at: new Date(row.created_at).toISOString() })), total: filteredCount.rows[0].total, active: stats.rows[0].active, suspended: stats.rows[0].suspended };
+  }
+  const matching = readLocalCafes().filter((cafe) => !search || [cafe.cafe_name, cafe.owner_name, cafe.email, cafe.slug, cafe.id].some((value) => String(value ?? '').toLowerCase().includes(search)));
+  const all = matching.filter((cafe) => !status || cafe.status === status).sort((a, b) => b.id - a.id);
+  return { cafes: all.slice(offset, offset + pageSize), total: all.length, active: matching.filter((cafe) => cafe.status === 'active').length, suspended: matching.filter((cafe) => cafe.status === 'suspended').length };
+}
+
+export async function getAllCafes(): Promise<Cafe[]> {
+  return (await getCafePage({ page: 1, pageSize: 100 })).cafes;
 }
 
 /**
@@ -312,7 +350,16 @@ export async function saveCafeGalleryImage(apiKey: string, slugHint: string, dat
     : readLocalCafes().find((item) => item.api_key === apiKey || String(item.slug || '').toLowerCase() === slugHint.toLowerCase());
   const resolvedSlug = String(cafe?.slug || slugHint || '').trim().toLowerCase();
   if (!resolvedSlug) return null;
-  temporaryGalleryImages.set(resolvedSlug, { data, mimeType });
+  const previous = temporaryGalleryImages.get(resolvedSlug);
+  if (previous) temporaryImageBytes -= previous.data.byteLength;
+  temporaryGalleryImages.set(resolvedSlug, { data, mimeType, updatedAt: Date.now() });
+  temporaryImageBytes += data.byteLength;
+  while (temporaryImageBytes > TEMPORARY_IMAGE_MAX_BYTES && temporaryGalleryImages.size > 0) {
+    const oldest = [...temporaryGalleryImages.entries()].sort(([, left], [, right]) => left.updatedAt - right.updatedAt)[0];
+    if (!oldest) break;
+    temporaryImageBytes -= oldest[1].data.byteLength;
+    temporaryGalleryImages.delete(oldest[0]);
+  }
   return resolvedSlug;
 }
 
@@ -334,7 +381,8 @@ async function isCafeOnline(slug: string): Promise<boolean> {
 
 export async function getCafeGalleryImage(slug: string): Promise<{ data: Buffer; mimeType: string } | null> {
   const image = temporaryGalleryImages.get(slug);
-  if (!image || !(await isCafeOnline(slug))) {
+  if (!image || Date.now() - image.updatedAt > TEMPORARY_IMAGE_MAX_AGE_MS || !(await isCafeOnline(slug))) {
+    if (image) temporaryImageBytes -= image.data.byteLength;
     temporaryGalleryImages.delete(slug);
     return null;
   }
@@ -342,7 +390,8 @@ export async function getCafeGalleryImage(slug: string): Promise<{ data: Buffer;
 }
 
 export function refreshCafeGalleryImage(slug: string): void {
-  // Heartbeats determine availability; no fixed image TTL is used.
+  const image = temporaryGalleryImages.get(String(slug || '').trim().toLowerCase());
+  if (image) image.updatedAt = Date.now();
 }
 
 export async function removeDuplicateCafeSlug(slug: string, ownerApiKey: string): Promise<void> {
@@ -359,7 +408,9 @@ export async function removeDuplicateCafeSlug(slug: string, ownerApiKey: string)
   const duplicate = cafes.find((cafe) => String(cafe.slug || '').toLowerCase() === slug.toLowerCase());
   if (duplicate && duplicate.api_key !== ownerApiKey) {
     writeLocalCafes(cafes.filter((cafe) => cafe !== duplicate));
-    temporaryGalleryImages.delete(slug);
+      const removed = temporaryGalleryImages.get(slug);
+      if (removed) temporaryImageBytes -= removed.data.byteLength;
+      temporaryGalleryImages.delete(slug);
   }
 }
 

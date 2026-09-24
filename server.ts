@@ -25,7 +25,7 @@ import {
   getCafeById,
   createCafe,
   updateCafeStatus, deleteCafe,
-  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, getStorageUsage, saveCafeGalleryImage, getCafeGalleryImage, refreshCafeGalleryImage, removeDuplicateCafeSlug,
+  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, getStorageUsage, saveCafeGalleryImage, getCafeGalleryImage, refreshCafeGalleryImage, removeDuplicateCafeSlug, getCafePage,
 } from './db.js';
 
 dotenv.config();
@@ -435,20 +435,27 @@ app.get('/api/admin/live-status', requireAdminAuth, async (_req: Request, res: R
  * GET /api/admin/cafes
  * Returns all cafes with their status, creation timestamp, and API keys
  */
-app.get('/api/admin/cafes', requireAdminAuth, async (_req: Request, res: Response): Promise<void> => {
+app.get('/api/admin/cafes', requireAdminAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const cafes = await getAllCafes();
-    const activeCount = cafes.filter((c) => c.status === 'active').length;
-    const suspendedCount = cafes.filter((c) => c.status === 'suspended').length;
+    const page = Number(req.query.page || 1);
+    const pageSize = Number(req.query.pageSize || 50);
+    const result = await getCafePage({
+      page,
+      pageSize,
+      search: String(req.query.search || ''),
+      status: String(req.query.status || ''),
+    });
+    const safePageSize = Math.min(100, Math.max(1, Math.floor(pageSize || 50)));
 
     res.json({
       success: true,
-      counts: {
-        total: cafes.length,
-        active: activeCount,
-        suspended: suspendedCount,
+      counts: { total: result.total, active: result.active, suspended: result.suspended },
+      cafes: result.cafes,
+      pagination: {
+        page: Math.max(1, Math.floor(page || 1)),
+        pageSize: safePageSize,
+        totalPages: Math.max(1, Math.ceil(result.total / safePageSize)),
       },
-      cafes,
     });
   } catch (err) {
     console.error('Error fetching cafes:', err);
@@ -777,6 +784,8 @@ interface DirectoryListing {
 const directoryData: Record<string, DirectoryListing> = {};
 type LiveCustomerEntry = { category: string; seatName: string; customerName: string; whatsappNumber: string; startTime: string | null; endTime: string | null };
 const liveCustomerData: Record<string, { updatedAt: number; entries: LiveCustomerEntry[] }> = {};
+let publicDirectoryCache: { expiresAt: number; payload: any } | null = null;
+const PUBLIC_DIRECTORY_CACHE_MS = 3_000;
 const PRIVATE_FIELD_PATTERN = /(^|_)(api[_-]?key|password|secret|token|authorization|owner[_-]?email)($|_)/i;
 function stripPrivateFields(value: unknown): any {
   if (Array.isArray(value)) return value.map(stripPrivateFields);
@@ -862,7 +871,7 @@ function formatListing(listing: DirectoryListing) {
 }
 
 /** Stores one POS image in the Render database and returns a public Render URL. */
-app.post('/api/directory/image-upload', rateLimit('image-upload', 20, 60 * 60 * 1000), requireHeartbeatSecret, express.json({ limit: '12mb' }), async (req: Request, res: Response): Promise<void> => {
+app.post('/api/directory/image-upload', rateLimit('image-upload', 20, 60 * 60 * 1000), requireHeartbeatSecret, express.json({ limit: '512kb' }), async (req: Request, res: Response): Promise<void> => {
   const uploadId = randomBytes(6).toString('hex');
   try {
     const dataUrl = String(req.body?.dataUrl || '');
@@ -874,9 +883,9 @@ app.post('/api/directory/image-upload', rateLimit('image-upload', 20, 60 * 60 * 
     }
     const mimeType = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
     const imageBuffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
-    if (imageBuffer.byteLength > 307200) {
+    if (imageBuffer.byteLength > 262144) {
       console.error(`[gallery-upload:${uploadId}] image too large: ${imageBuffer.byteLength} bytes`);
-      res.status(413).json({ success: false, message: 'Image must be 300 KB or smaller.' });
+      res.status(413).json({ success: false, message: 'Image must be 256 KB or smaller.' });
       return;
     }
     const apiKey = String(req.headers['x-api-key'] || '').trim();
@@ -914,7 +923,7 @@ app.get('/api/directory/:slug/gallery-image', rateLimit('gallery-image', 120, 60
  * Public POS heartbeat endpoint. Uses validation, rate limiting, and payload restrictions instead of API keys.
  * Receives seat counts from the desktop app (POS)
  */
-app.post('/api/directory/heartbeat', rateLimit('heartbeat', 60, 60 * 1000), requireHeartbeatSecret, express.json({ limit: '100kb' }), async (req: Request, res: Response): Promise<void> => {
+app.post('/api/directory/heartbeat', rateLimit('heartbeat', 600, 60 * 1000), requireHeartbeatSecret, express.json({ limit: '100kb' }), async (req: Request, res: Response): Promise<void> => {
   try {
     const payload = req.body;
     
@@ -983,7 +992,8 @@ app.post('/api/directory/heartbeat', rateLimit('heartbeat', 60, 60 * 1000), requ
     // Persist to DB
     const syncResult = await syncCafeHeartbeat(normalizedSlug, cafeName, categories, publicMetadata, safeAvailability, capturedAt, payload.configurations || null);
 
-    // Also update in-memory directory
+    // Invalidate the short-lived public cache and update the in-memory directory.
+    publicDirectoryCache = null;
     directoryData[normalizedSlug] = {
       slug: normalizedSlug,
       data: { ...cleanPayload, availability: safeAvailability },
@@ -1054,8 +1064,13 @@ app.get('/api/directory/game-image', rateLimit('game-image', 60, 60 * 1000), asy
  * GET /api/directory
  * Public address for player-facing site (All listings)
  */
-app.get('/api/directory', rateLimit('directory', 60, 60 * 1000), async (_req: Request, res: Response): Promise<void> => {
+app.get('/api/directory', rateLimit('directory', 120, 60 * 1000), async (_req: Request, res: Response): Promise<void> => {
   try {
+    if (publicDirectoryCache && publicDirectoryCache.expiresAt > Date.now()) {
+      res.setHeader('Cache-Control', 'public, max-age=3, stale-while-revalidate=5');
+      res.json(publicDirectoryCache.payload);
+      return;
+    }
     const liveStatuses = await getLiveStatus();
     const result = liveStatuses.map((listing: any) => ({
       slug: listing.cafe_slug,
@@ -1071,7 +1086,10 @@ app.get('/api/directory', rateLimit('directory', 60, 60 * 1000), async (_req: Re
       configurations: publicConfigurations(listing.configurations),
       capturedAt: listing.last_heartbeat,
     }));
-    res.json({ success: true, data: result });
+    const payload = { success: true, data: result };
+    publicDirectoryCache = { expiresAt: Date.now() + PUBLIC_DIRECTORY_CACHE_MS, payload };
+    res.setHeader('Cache-Control', 'public, max-age=3, stale-while-revalidate=5');
+    res.json(payload);
   } catch (err) {
     console.error('Error building public directory:', err);
     const result = Object.values(directoryData).map(listing => formatListing(listing));

@@ -23,7 +23,7 @@ import {
   AlertOctagon,
   Users,
 } from 'lucide-react';
-import { Cafe, AdminCounts } from './types';
+import { Cafe, AdminCounts, AdminPagination } from './types';
 import { LoginView } from './components/LoginView';
 import { CafeTable } from './components/CafeTable';
 import { PosTesterModal } from './components/PosTesterModal';
@@ -44,6 +44,7 @@ export default function App() {
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
+  const [pagination, setPagination] = useState<AdminPagination>({ page: 1, pageSize: 50, totalPages: 1 });
 
   // Modals state
   const [isPosTesterOpen, setIsPosTesterOpen] = useState<boolean>(false);
@@ -81,7 +82,7 @@ export default function App() {
   }, [checkAuth]);
 
   // Fetch cafes list from backend
-  const fetchCafes = useCallback(async () => {
+  const fetchCafes = useCallback(async (requestedPage = pagination.page) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('admin_token');
@@ -90,7 +91,10 @@ export default function App() {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const res = await fetch('/api/admin/cafes', { headers });
+      const params = new URLSearchParams({ page: String(requestedPage), pageSize: String(pagination.pageSize) });
+      if (searchQuery.trim()) params.set('search', searchQuery.trim());
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      const res = await fetch(`/api/admin/cafes?${params.toString()}`, { headers });
       if (res.status === 401 || res.status === 403) {
         setIsAuthenticated(false);
         return;
@@ -99,6 +103,7 @@ export default function App() {
       const data = await res.json();
       if (data.success && Array.isArray(data.cafes)) {
         setCafes(data.cafes);
+        if (data.pagination) setPagination(data.pagination);
         if (data.counts) {
           setCounts(data.counts);
         } else {
@@ -114,13 +119,11 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [pagination.page, pagination.pageSize, searchQuery, statusFilter]);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchCafes();
-    }
-  }, [isAuthenticated, fetchCafes]);
+    if (isAuthenticated) fetchCafes(1);
+  }, [isAuthenticated, searchQuery, statusFilter]);
 
   // Handle Logout
   const handleLogout = async () => {
@@ -225,20 +228,7 @@ export default function App() {
     }
   };
 
-  // Filtered cafes based on search & tab
-  const filteredCafes = cafes.filter((cafe) => {
-    const matchesSearch =
-      cafe.cafe_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cafe.owner_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cafe.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      cafe.api_key.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      String(cafe.id).includes(searchQuery);
-
-    const matchesStatus =
-      statusFilter === 'all' ? true : cafe.status === statusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
+  const filteredCafes = cafes;
 
   // Initial loading state while checking session
   if (isAuthenticated === null) {
@@ -453,6 +443,13 @@ export default function App() {
                 onToggleStatus={handleToggleStatusClick}
                 actionLoadingId={actionLoadingId}
               />
+              <div className="flex items-center justify-between border-t border-neutral-800 px-4 py-3 text-xs text-neutral-400">
+                <span>Page {pagination.page} of {pagination.totalPages}</span>
+                <div className="flex gap-2">
+                  <button type="button" disabled={pagination.page <= 1 || loading} onClick={() => { const nextPage = pagination.page - 1; setPagination((current) => ({ ...current, page: nextPage })); fetchCafes(nextPage); }} className="rounded border border-neutral-700 px-3 py-1.5 disabled:opacity-40">Previous</button>
+                  <button type="button" disabled={pagination.page >= pagination.totalPages || loading} onClick={() => { const nextPage = pagination.page + 1; setPagination((current) => ({ ...current, page: nextPage })); fetchCafes(nextPage); }} className="rounded border border-neutral-700 px-3 py-1.5 disabled:opacity-40">Next</button>
+                </div>
+              </div>
             </div>
           </section>
         )}

@@ -18,6 +18,12 @@ export interface AdminCounts {
   suspended: number;
 }
 
+export interface AdminPagination {
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export interface AdminAuthResponse {
   authenticated: boolean;
   user?: {
