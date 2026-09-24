@@ -60,6 +60,35 @@ function isHeartbeatFresh(value: unknown): boolean {
 let pgPool: pg.Pool | null = null;
 let usePostgres = false;
 
+export function getDatabasePoolMetrics() {
+  if (!usePostgres || !pgPool) {
+    return {
+      provider: 'file fallback' as const,
+      configured: false,
+      total: 0,
+      idle: 0,
+      waiting: 0,
+      max: 0,
+      utilizationPercent: 0,
+    };
+  }
+  const pool = pgPool as pg.Pool & { totalCount?: number; idleCount?: number; waitingCount?: number; options?: { max?: number } };
+  const max = Number(pool.options?.max || process.env.PG_POOL_MAX || 20);
+  const total = Number(pool.totalCount || 0);
+  const idle = Number(pool.idleCount || 0);
+  const waiting = Number(pool.waitingCount || 0);
+  return {
+    provider: 'PostgreSQL' as const,
+    configured: true,
+    total,
+    idle,
+    active: Math.max(0, total - idle),
+    waiting,
+    max,
+    utilizationPercent: max > 0 ? Math.min(100, Math.round((Math.max(0, total - idle) / max) * 100)) : 0,
+  };
+}
+
 export async function getStorageUsage() {
   let databaseBytes: number | null = null;
   let databaseName: string | null = null;

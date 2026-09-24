@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Server, Activity, Database, Clock, Zap, RefreshCw, Cpu } from 'lucide-react';
-import { SystemHealth } from '../types';
+import { DatabasePoolMetrics, SystemHealth } from '../types';
 
 export const SystemHealthView: React.FC = () => {
   const [health, setHealth] = useState<SystemHealth | null>(null);
+  const [pool, setPool] = useState<DatabasePoolMetrics | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchHealth = async () => {
@@ -14,6 +15,9 @@ export const SystemHealthView: React.FC = () => {
       if (data.success) {
         setHealth(data.health);
       }
+      const poolRes = await fetch('/api/admin/database-pool');
+      const poolData = await poolRes.json();
+      if (poolData.success) setPool(poolData.pool);
     } catch (error) {
       console.error('Failed to fetch system health', error);
     } finally {
@@ -24,8 +28,8 @@ export const SystemHealthView: React.FC = () => {
   useEffect(() => {
     fetchHealth();
     
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchHealth, 30000);
+    // Keep pool pressure visible in near real time.
+    const interval = setInterval(fetchHealth, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -118,6 +122,26 @@ export const SystemHealthView: React.FC = () => {
                 <span className="font-mono font-medium text-white">{health.memory.heapUsed}</span>
               </div>
             </div>
+          </div>
+
+          {/* PostgreSQL Pool Card */}
+          <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-emerald-500/10 text-emerald-500 rounded-md">
+                <Database className="w-5 h-5" />
+              </div>
+              <h3 className="font-semibold text-neutral-200">PostgreSQL Pool</h3>
+            </div>
+            {pool ? (
+              <div className="space-y-3">
+                <div className="flex justify-between text-sm"><span className="text-neutral-400">Active</span><span className="font-mono text-white">{pool.active ?? 0}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-neutral-400">Idle</span><span className="font-mono text-white">{pool.idle}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-neutral-400">Waiting</span><span className={`font-mono ${pool.waiting > 0 ? 'text-amber-400' : 'text-white'}`}>{pool.waiting}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-neutral-400">Limit</span><span className="font-mono text-white">{pool.max}</span></div>
+                <div className="h-1.5 rounded-full bg-neutral-800 overflow-hidden"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pool.utilizationPercent}%` }} /></div>
+                <p className="text-xs text-neutral-500">{pool.utilizationPercent}% in use · refreshes every 5 seconds</p>
+              </div>
+            ) : <p className="text-sm text-neutral-500">Pool metrics unavailable</p>}
           </div>
 
           {/* Server Details Card */}

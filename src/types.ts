@@ -62,6 +62,17 @@ export interface SystemHealth {
   timestamp: string;
 }
 
+export interface DatabasePoolMetrics {
+  provider: 'PostgreSQL' | 'file fallback';
+  configured: boolean;
+  total: number;
+  idle: number;
+  active?: number;
+  waiting: number;
+  max: number;
+  utilizationPercent: number;
+}
+
 export interface DeviceStat {
   type: string;
   total: number;

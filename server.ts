@@ -25,7 +25,7 @@ import {
   getCafeById,
   createCafe,
   updateCafeStatus, deleteCafe,
-  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, getStorageUsage, saveCafeGalleryImage, getCafeGalleryImage, refreshCafeGalleryImage, removeDuplicateCafeSlug, getCafePage,
+  findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, getStorageUsage, getDatabasePoolMetrics, saveCafeGalleryImage, getCafeGalleryImage, refreshCafeGalleryImage, removeDuplicateCafeSlug, getCafePage,
 } from './db.js';
 
 dotenv.config();
@@ -406,6 +406,9 @@ app.get('/api/admin/health', requireAdminAuth, async (_req: Request, res: Respon
       timestamp: new Date().toISOString()
     }
   });
+});
+app.get('/api/admin/database-pool', requireAdminAuth, (_req: Request, res: Response): void => {
+  res.json({ success: true, pool: getDatabasePoolMetrics(), checkedAt: new Date().toISOString() });
 });
 app.get('/api/admin/storage', requireAdminAuth, async (_req: Request, res: Response): Promise<void> => {
   try {
