@@ -27,6 +27,7 @@ import {
   updateCafeStatus, deleteCafe,
   findCafeByIdAndApiKey, findCafeByApiKey, findCafeBySlug, syncCafeHeartbeat, getLiveStatus, getStorageUsage, getDatabasePoolMetrics, saveCafeGalleryImage, getCafeGalleryImage, refreshCafeGalleryImage, removeDuplicateCafeSlug, getCafePage,
 } from './db.js';
+import { validatePublicMembershipPlans, type PublicMembershipPlan } from './membership-plans.js';
 
 dotenv.config();
 
@@ -984,8 +985,29 @@ app.post('/api/directory/heartbeat', rateLimit('heartbeat', 600, 60 * 1000), req
     }
     const capturedAt = payload.capturedAt || new Date().toISOString();
     const categories = payload.cafe?.categories || [];
-    
-    const publicMetadata = payload.cafe ? { ...payload.cafe } : {};
+
+    const cafeProfile = payload.cafe && typeof payload.cafe === 'object' && !Array.isArray(payload.cafe)
+      ? payload.cafe as Record<string, unknown>
+      : {};
+    const hasIncomingMembershipPlans = Object.prototype.hasOwnProperty.call(cafeProfile, 'membershipPlans');
+    let membershipPlans: PublicMembershipPlan[] | undefined;
+    if (hasIncomingMembershipPlans) {
+      const validation = validatePublicMembershipPlans(cafeProfile.membershipPlans);
+      if (validation.valid === false) {
+        res.status(400).json({ success: false, message: validation.message });
+        return;
+      }
+      membershipPlans = validation.plans;
+    } else if (Array.isArray(existingCafe?.public_metadata?.membershipPlans)) {
+      const previousPlans = validatePublicMembershipPlans(existingCafe.public_metadata.membershipPlans);
+      if (previousPlans.valid) membershipPlans = previousPlans.plans;
+    }
+
+    const safeCafeProfile: Record<string, unknown> = { ...cafeProfile };
+    if (membershipPlans !== undefined) safeCafeProfile.membershipPlans = membershipPlans;
+    else delete safeCafeProfile.membershipPlans;
+
+    const publicMetadata = { ...safeCafeProfile };
     delete publicMetadata.name;
     delete publicMetadata.categories;
     const availability = Array.isArray(payload.availability) ? payload.availability : [];
@@ -999,7 +1021,7 @@ app.post('/api/directory/heartbeat', rateLimit('heartbeat', 600, 60 * 1000), req
     publicDirectoryCache = null;
     directoryData[normalizedSlug] = {
       slug: normalizedSlug,
-      data: { ...cleanPayload, availability: safeAvailability },
+      data: { ...cleanPayload, cafe: safeCafeProfile, availability: safeAvailability },
       lastUpdate: Date.now()
     };
 

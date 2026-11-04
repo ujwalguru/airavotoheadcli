@@ -367,6 +367,7 @@ export async function findCafeBySlug(slug: string): Promise<Cafe | null> {
       status: row.status,
       created_at: new Date(row.created_at).toISOString(),
       slug: row.slug || undefined,
+      public_metadata: row.public_metadata || {},
     };
   }
   const cafes = readLocalCafes();

@@ -41,6 +41,64 @@ async function runTests() {
     assert.strictEqual(getData.data.cafe.name, 'Test Cafe 1');
     assert.strictEqual(getData.data.availability[0].available, 5);
 
+    console.log('1b. Public membership plans are validated, saved, and survive older POS heartbeats.');
+    const membershipData = {
+      slug: 'membership-plan-cafe',
+      capturedAt: new Date().toISOString(),
+      cafe: {
+        id: 'membership-plan-cafe',
+        name: 'Membership Plan Cafe',
+        membershipPlans: [{
+          name: 'Ten Hour Pass',
+          category: 'PC',
+          durationHours: 10,
+          validityDays: 30,
+          regularPrice: 3000,
+          membershipPrice: 2000,
+          benefits: 'Ten hours of PC gaming',
+          notice: 'Valid for 30 days',
+          memberName: 'must not be public',
+          phone: '0000000000',
+          purchases: [{ paymentMethod: 'cash' }],
+        }],
+      },
+      availability: [],
+    };
+    res = await sendHeartbeat(membershipData);
+    assert.strictEqual(res.status, 200, `Expected 200 for valid membership plans, got ${res.status} ${await res.text()}`);
+    getRes = await getDirectory('membership-plan-cafe');
+    getData = await getRes.json();
+    const publicPlans = getData.data.cafe.membershipPlans;
+    assert.strictEqual(publicPlans.length, 1);
+    assert.strictEqual(publicPlans[0].membershipPrice, 2000);
+    assert.strictEqual(publicPlans[0].discountPercent, 33.3);
+    assert.strictEqual('memberName' in publicPlans[0], false);
+    assert.strictEqual('phone' in publicPlans[0], false);
+    assert.strictEqual('purchases' in publicPlans[0], false);
+
+    const publicListRes = await fetch(`${baseUrl}/api/directory`);
+    const publicList = await publicListRes.json();
+    const listedMembershipCafe = publicList.data.find((listing: any) => listing.slug === 'membership-plan-cafe');
+    assert.strictEqual(listedMembershipCafe.cafe.membershipPlans[0].name, 'Ten Hour Pass');
+
+    const legacyHeartbeat = {
+      ...membershipData,
+      capturedAt: new Date().toISOString(),
+      cafe: { id: 'membership-plan-cafe', name: 'Membership Plan Cafe' },
+    };
+    res = await sendHeartbeat(legacyHeartbeat);
+    assert.strictEqual(res.status, 200, `Expected old heartbeat format to remain valid, got ${res.status} ${await res.text()}`);
+    getRes = await getDirectory('membership-plan-cafe');
+    getData = await getRes.json();
+    assert.strictEqual(getData.data.cafe.membershipPlans[0].name, 'Ten Hour Pass');
+
+    const invalidMembershipHeartbeat = {
+      ...membershipData,
+      cafe: { ...membershipData.cafe, membershipPlans: [{ ...membershipData.cafe.membershipPlans[0], validityDays: -1 }] },
+    };
+    res = await sendHeartbeat(invalidMembershipHeartbeat);
+    assert.strictEqual(res.status, 400, 'Invalid membership plans should be rejected.');
+
     console.log('2. Missing café ID/slug returns HTTP 400.');
     res = await sendHeartbeat({
       cafe: { name: 'Test Cafe 2' }

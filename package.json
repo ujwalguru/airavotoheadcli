@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "test:membership-plans": "tsx membership-plans.test.ts",
     "test": "tsx test.ts"
   },
   "dependencies": {
