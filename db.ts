@@ -19,6 +19,7 @@ import pg from 'pg';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { buildCafePublicDetails } from './membership-plans.js';
 
 export interface Cafe {
   id: number;
@@ -841,10 +842,7 @@ export async function getLiveStatus(): Promise<any[]> {
         recent_entries: [],
         last_heartbeat: row.heartbeat_received_at || row.captured_at,
         availability: isOnline ? (row.availability || []) : [],
-        cafe_details: {
-          ...(row.public_metadata || {}),
-          categories: row.categories || []
-        },
+        cafe_details: buildCafePublicDetails(row.public_metadata, { categories: row.categories || [] }),
         configurations: {
           devices: (row.device_configs || []).map((device: any) => ({
             ...device,
@@ -889,10 +887,7 @@ export async function getLiveStatus(): Promise<any[]> {
       recent_entries: [],
       last_heartbeat: heartbeatTimestamp,
       availability: isOnline ? (cafe.availability || []) : [],
-      cafe_details: {
-        ...(cafe.public_metadata || {}),
-        categories: cafe.categories || []
-      },
+      cafe_details: buildCafePublicDetails(cafe.public_metadata, { categories: cafe.categories || [] }),
       configurations: cafe.configurations || { devices: [], pricing: [], happyHours: [], happyHoursPricing: [] }
     };
   });

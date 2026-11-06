@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { validatePublicMembershipPlans } from "./membership-plans.js";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { buildCafePublicDetails, validatePublicMembershipPlans } from "./membership-plans.js";
+import { CafeMembershipPlansPanel } from "./src/components/CafeMembershipPlansPanel.js";
 
 const userMappedPlan = {
   id: "plan-10-hour",
@@ -73,4 +76,35 @@ assert.equal(validatePublicMembershipPlans([{ ...userMappedPlan, duration: "free
 assert.equal(validatePublicMembershipPlans([{ ...userMappedPlan, benefits: "x".repeat(1_001) }]).valid, false);
 assert.equal(validatePublicMembershipPlans(Array.from({ length: 26 }, (_, i) => ({ ...userMappedPlan, id: `plan-${i}` }))).valid, false);
 
-console.log("Membership-plan validation tests passed.");
+// Admin live-status details must retain plans from the saved public metadata.
+const adminCafeDetails = buildCafePublicDetails(
+  { city: "Bhuj", membershipPlans: [expectedPublicPlan] },
+  { categories: ["Gaming"] },
+);
+assert.deepEqual(adminCafeDetails.membershipPlans, [expectedPublicPlan]);
+assert.equal(adminCafeDetails.city, "Bhuj");
+assert.deepEqual(adminCafeDetails.categories, ["Gaming"]);
+
+// Regression: the café detail panel visibly renders every requested plan field.
+const renderedPanel = renderToStaticMarkup(createElement(CafeMembershipPlansPanel, { plans: [expectedPublicPlan] }));
+for (const expectedText of [
+  "Membership Plans",
+  "Gaming Cafe 10 Hours",
+  "PC",
+  "Membership price",
+  "₹2,000",
+  "Duration",
+  "10 hours",
+  "Validity",
+  "30 days",
+  "Benefits",
+  "10 hours of PC gaming",
+  "Priority booking",
+  "Important notice",
+  "Valid for 30 days",
+]) {
+  assert.ok(renderedPanel.includes(expectedText), `Dashboard membership panel should render: ${expectedText}`);
+}
+assert.equal(renderToStaticMarkup(createElement(CafeMembershipPlansPanel, { plans: [] })), "");
+
+console.log("Membership-plan validation, admin metadata, and dashboard display tests passed.");

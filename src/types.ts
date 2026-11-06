@@ -92,6 +92,23 @@ export interface CafeEntry {
   status: 'active' | 'completed';
 }
 
+export interface CafeMembershipPlan {
+  id?: string;
+  name: string;
+  category: string;
+  membershipPrice: number;
+  duration: string;
+  validity: string;
+  benefits: string;
+  notice: string;
+  regularPrice?: number | null;
+  discountPercent?: number | null;
+}
+
+export interface CafePublicDetails extends Record<string, any> {
+  membershipPlans?: CafeMembershipPlan[];
+}
+
 export interface CafeLiveStatus {
   cafe_id: number;
   cafe_name: string;
@@ -102,7 +119,7 @@ export interface CafeLiveStatus {
   recent_entries: CafeEntry[];
   last_heartbeat?: string;
   availability?: any[];
-  cafe_details?: Record<string, any>;
+  cafe_details?: CafePublicDetails;
   configurations?: {
     devices: any[];
     pricing: any[];

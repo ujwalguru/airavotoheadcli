@@ -421,10 +421,18 @@ app.get('/api/admin/storage', requireAdminAuth, async (_req: Request, res: Respo
 app.get('/api/admin/live-status', requireAdminAuth, async (_req: Request, res: Response): Promise<void> => {
   try {
     const liveStatus = await getLiveStatus();
-    const adminLiveStatus = liveStatus.map((cafe: any) => ({
-      ...cafe,
-      devices: cafe.is_online ? mergeLiveCustomerData(cafe.cafe_slug, cafe.devices) : cafe.devices,
-    }));
+    const adminLiveStatus = liveStatus.map((cafe: any) => {
+      const cafeDetails = cafe.cafe_details && typeof cafe.cafe_details === 'object' ? cafe.cafe_details : {};
+      const membershipPlans = cafeDetails.membershipPlans ?? cafe.public_metadata?.membershipPlans ?? cafe.membershipPlans;
+      return {
+        ...cafe,
+        cafe_details: {
+          ...cafeDetails,
+          membershipPlans: Array.isArray(membershipPlans) ? membershipPlans : [],
+        },
+        devices: cafe.is_online ? mergeLiveCustomerData(cafe.cafe_slug, cafe.devices) : cafe.devices,
+      };
+    });
     res.json({ success: true, liveStatus: adminLiveStatus });
   } catch (err) {
     res.status(500).json({ error: 'Internal Server Error' });

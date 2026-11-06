@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight, WifiOff, Copy, Trash2 } from 'lucide-react';
-import { CafeLiveStatus } from '../types';
+import type { CafeLiveStatus, CafePublicDetails } from '../types';
+import { CafeMembershipPlansPanel } from './CafeMembershipPlansPanel';
 
 interface CafeLiveDashboardProps {
   onRequestDelete: (cafe: CafeLiveStatus) => void;
@@ -22,7 +23,7 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
       if (token) headers.Authorization = `Bearer ${token}`;
 
       const res = await fetch('/api/admin/live-status', { headers });
-      const data = await res.json();
+      const data = await res.json() as { success?: boolean; liveStatus?: CafeLiveStatus[] };
       if (data.success) {
         setLiveData(data.liveStatus || []);
       }
@@ -66,7 +67,7 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
     return Number.isNaN(date.getTime()) ? text : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  const getCafeDetails = (cafe: CafeLiveStatus) => cafe.cafe_details || {};
+  const getCafeDetails = (cafe: CafeLiveStatus): CafePublicDetails => cafe.cafe_details || {};
 
   const isCafeOnline = (cafe: CafeLiveStatus) => cafe.status === 'active' && cafe.is_online === true;
   const getCafeStatusLabel = (cafe: CafeLiveStatus) => {
@@ -251,7 +252,8 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
                   const amenities = getAmenities(details);
                   const games = getCatalog(details, ['games', 'gameCatalog', 'game_catalog']);
                   const foodItems = getCatalog(details, ['foodItems', 'food_items', 'menu']);
-                  return (details.description || details.address || details.city || details.hours || amenities.length > 0 || gallery.length > 0 || games.length > 0 || foodItems.length > 0) ? (
+                  const membershipPlans = Array.isArray(details.membershipPlans) ? details.membershipPlans : [];
+                  return (details.description || details.address || details.city || details.hours || amenities.length > 0 || gallery.length > 0 || games.length > 0 || foodItems.length > 0 || membershipPlans.length > 0) ? (
                     <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5">
                       <div className="space-y-3">
                         {(details.description || details.address || details.city || details.hours) && (
@@ -284,6 +286,7 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
                           {foodItems.length > 0 && <div className="bg-black border border-neutral-800 rounded-lg p-4"><h4 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">Food Items</h4><div className="space-y-2">{foodItems.map((item: any, index: number) => <div key={index} className="flex justify-between gap-3 text-sm text-neutral-300"><span>{typeof item === 'string' ? item : item.name || item.title || item.itemName || JSON.stringify(item)}</span>{typeof item !== 'string' && item.price != null && <span className="text-purple-400">₹{item.price}</span>}</div>)}</div></div>}
                         </div>
                       )}
+                      <CafeMembershipPlansPanel plans={membershipPlans} />
                     </div>
                   ) : null;
                 })()}

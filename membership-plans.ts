@@ -161,3 +161,23 @@ export function validatePublicMembershipPlans(input: unknown): MembershipPlanVal
 
   return { valid: true, plans };
 }
+
+/** Merge saved public metadata into the café details sent to the admin dashboard.
+ * Explicit dashboard fields win, while membershipPlans fall back to the saved
+ * public metadata when a live-status projection omits them. */
+export function buildCafePublicDetails(
+  savedPublicMetadata: unknown,
+  additionalDetails: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const saved = savedPublicMetadata && typeof savedPublicMetadata === "object" && !Array.isArray(savedPublicMetadata)
+    ? savedPublicMetadata as Record<string, unknown>
+    : {};
+  const details: Record<string, unknown> = { ...saved, ...additionalDetails };
+  const plans = Array.isArray(additionalDetails.membershipPlans)
+    ? additionalDetails.membershipPlans
+    : saved.membershipPlans;
+
+  if (Array.isArray(plans)) details.membershipPlans = plans;
+  else delete details.membershipPlans;
+  return details;
+}
