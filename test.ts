@@ -49,12 +49,14 @@ async function runTests() {
         id: 'membership-plan-cafe',
         name: 'Membership Plan Cafe',
         membershipPlans: [{
+          id: 'plan-ten-hour-pass',
           name: 'Ten Hour Pass',
           category: 'PC',
-          durationHours: 10,
-          validityDays: 30,
-          regularPrice: 3000,
           membershipPrice: 2000,
+          durationHours: 10,
+          duration: '10 hours',
+          validityDays: 30,
+          validity: '30 days',
           benefits: 'Ten hours of PC gaming',
           notice: 'Valid for 30 days',
           memberName: 'must not be public',
@@ -70,8 +72,12 @@ async function runTests() {
     getData = await getRes.json();
     const publicPlans = getData.data.cafe.membershipPlans;
     assert.strictEqual(publicPlans.length, 1);
+    assert.strictEqual(publicPlans[0].id, 'plan-ten-hour-pass');
     assert.strictEqual(publicPlans[0].membershipPrice, 2000);
-    assert.strictEqual(publicPlans[0].discountPercent, 33.3);
+    assert.strictEqual(publicPlans[0].duration, '10 hours');
+    assert.strictEqual(publicPlans[0].validity, '30 days');
+    assert.strictEqual(publicPlans[0].durationHours, undefined);
+    assert.strictEqual(publicPlans[0].validityDays, undefined);
     assert.strictEqual('memberName' in publicPlans[0], false);
     assert.strictEqual('phone' in publicPlans[0], false);
     assert.strictEqual('purchases' in publicPlans[0], false);
