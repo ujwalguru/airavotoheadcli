@@ -32,6 +32,7 @@ export interface Cafe {
   slug?: string;
   categories?: any[];
   public_metadata?: any;
+  website_overrides?: any;
   updated_at?: string;
   captured_at?: string;
   availability?: any[];
@@ -164,6 +165,7 @@ export async function initDatabase(): Promise<{cafeUpserted: boolean, heartbeatU
         ALTER TABLE cafes 
         ADD COLUMN IF NOT EXISTS slug VARCHAR(255) UNIQUE,
         ADD COLUMN IF NOT EXISTS public_metadata JSONB,
+        ADD COLUMN IF NOT EXISTS website_overrides JSONB DEFAULT '{}'::jsonb,
         ADD COLUMN IF NOT EXISTS categories JSONB,
         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
       `);
@@ -630,6 +632,22 @@ export async function findCafeByApiKey(apiKey: string): Promise<Cafe | null> {
   return cafes.find((c: Cafe) => c.api_key === apiKey) || null;
 }
 
+export async function saveCafeWebsiteOverrides(slug: string, overrides: Record<string, unknown>): Promise<boolean> {
+  if (usePostgres && pgPool) {
+    const result = await pgPool.query(
+      `UPDATE cafes SET website_overrides = $2::jsonb, updated_at = CURRENT_TIMESTAMP WHERE slug = $1 RETURNING id`,
+      [slug, JSON.stringify(overrides)],
+    );
+    return result.rowCount > 0;
+  }
+  const cafes = readLocalCafes();
+  const cafe = cafes.find((item) => item.slug === slug);
+  if (!cafe) return false;
+  cafe.website_overrides = overrides;
+  cafe.updated_at = new Date().toISOString();
+  writeLocalCafes(cafes);
+  return true;
+}
 
 function durationToMinutes(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.max(1, Math.round(value));
@@ -842,7 +860,7 @@ export async function getLiveStatus(): Promise<any[]> {
         recent_entries: [],
         last_heartbeat: row.heartbeat_received_at || row.captured_at,
         availability: isOnline ? (row.availability || []) : [],
-        cafe_details: buildCafePublicDetails(row.public_metadata, { categories: row.categories || [] }),
+        cafe_details: buildCafePublicDetails({ ...(row.public_metadata || {}), ...(row.website_overrides?.metadata || {}) }, { categories: row.categories || [] }),
         configurations: {
           devices: (row.device_configs || []).map((device: any) => ({
             ...device,
@@ -851,9 +869,10 @@ export async function getLiveStatus(): Promise<any[]> {
             start_time: device.start_time || null,
             end_time: device.end_time || null
           })),
-          pricing: row.pricing_configs || [],
-          happyHours: row.happy_hours || [],
-          happyHoursPricing: row.happy_hours_pricing || []
+          pricing: row.website_overrides?.configurations?.pricing ?? row.pricing_configs ?? [],
+          happyHours: row.website_overrides?.configurations?.happyHours ?? row.happy_hours ?? [],
+          happyHoursPricing: row.website_overrides?.configurations?.happyHoursPricing ?? row.happy_hours_pricing ?? [],
+          foodItems: row.website_overrides?.configurations?.foodItems ?? row.public_metadata?.foodItems ?? []
         }
       };
     });
@@ -887,8 +906,8 @@ export async function getLiveStatus(): Promise<any[]> {
       recent_entries: [],
       last_heartbeat: heartbeatTimestamp,
       availability: isOnline ? (cafe.availability || []) : [],
-      cafe_details: buildCafePublicDetails(cafe.public_metadata, { categories: cafe.categories || [] }),
-      configurations: cafe.configurations || { devices: [], pricing: [], happyHours: [], happyHoursPricing: [] }
+      cafe_details: buildCafePublicDetails({ ...(cafe.public_metadata || {}), ...(cafe.website_overrides?.metadata || {}) }, { categories: cafe.categories || [] }),
+      configurations: cafe.website_overrides?.configurations || cafe.configurations || { devices: [], pricing: [], happyHours: [], happyHoursPricing: [], foodItems: [] }
     };
   });
 }

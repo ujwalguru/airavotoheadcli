@@ -125,5 +125,6 @@ export interface CafeLiveStatus {
     pricing: any[];
     happyHours: any[];
     happyHoursPricing: any[];
+    foodItems?: any[];
   };
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight, WifiOff, Copy, Trash2 } from 'lucide-react';
+import { RefreshCw, Monitor, Gamepad2, Laptop, User, Clock, CheckCircle2, Search, X, ChevronRight, WifiOff, Copy, Trash2, Globe, Save, Eye, EyeOff } from 'lucide-react';
 import type { CafeLiveStatus, CafePublicDetails } from '../types';
 import { CafeMembershipPlansPanel } from './CafeMembershipPlansPanel';
 
@@ -13,6 +13,7 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCafe, setSelectedCafe] = useState<CafeLiveStatus | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'live' | 'website'>('live');
   const [selectedCafeIds, setSelectedCafeIds] = useState<Set<number>>(new Set());
 
   const fetchLiveData = useCallback(async () => {
@@ -133,6 +134,7 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
     });
   };
 
+  const openCafe = (cafe: CafeLiveStatus) => { setSelectedCafe(cafe); setSelectedTab('live'); };
   const calculateDuration = (startTime: string) => {
     const start = new Date(startTime).getTime();
     const now = new Date().getTime();
@@ -198,7 +200,7 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
               const inUse = cafe.devices.reduce((sum, device) => sum + Number(device.inUse || 0), 0);
               const details = getCafeDetails(cafe);
               const online = isCafeOnline(cafe);
-              return <button key={cafe.cafe_id} onClick={() => setSelectedCafe(cafe)} className={`text-left bg-neutral-900 border rounded-xl p-4 transition group ${selectedCafeIds.has(cafe.cafe_id) ? 'border-purple-500 ring-1 ring-purple-500/50' : online ? 'border-neutral-800 hover:border-purple-500' : 'border-rose-500/30 hover:border-rose-500/60'}`}>
+              return <button key={cafe.cafe_id} onClick={() => openCafe(cafe)} className={`text-left bg-neutral-900 border rounded-xl p-4 transition group ${selectedCafeIds.has(cafe.cafe_id) ? 'border-purple-500 ring-1 ring-purple-500/50' : online ? 'border-neutral-800 hover:border-purple-500' : 'border-rose-500/30 hover:border-rose-500/60'}`}>
                 <div className="flex items-start justify-between gap-3"><div className="flex items-start gap-3"><input type="checkbox" checked={selectedCafeIds.has(cafe.cafe_id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleCafeSelection(cafe.cafe_id)} aria-label={`Select ${cafe.cafe_name}`} className="mt-1 accent-purple-500" /><div><h3 className="font-semibold text-white">{cafe.cafe_name}</h3><p className="text-[11px] text-neutral-500 mt-1">Cafe ID: #{cafe.cafe_id}</p></div></div><ChevronRight className="w-4 h-4 text-neutral-600 group-hover:text-purple-400" /></div>
                 <div className="grid grid-cols-3 gap-2 mt-4 text-xs"><span className="text-neutral-400">Seats <strong className="block text-white text-base">{total}</strong></span><span className="text-neutral-400">In use <strong className="block text-rose-400 text-base">{inUse}</strong></span><span className="text-neutral-400">Status <strong className={`block text-base ${online ? 'text-emerald-400' : 'text-rose-400'}`}><span className={`inline-block w-2 h-2 rounded-full mr-1.5 align-middle ${online ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} aria-hidden="true" />{getCafeStatusLabel(cafe)}</strong></span></div>
                 {(details.city || details.address) && <p className="text-[11px] text-neutral-500 mt-3 truncate">{[details.city, details.address].filter(Boolean).join(' · ')}</p>}
@@ -236,7 +238,11 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
                 </button>
               </div>
 
-              <div className="p-5 flex-1 flex flex-col gap-6">
+              <div className="flex gap-2 border-b border-neutral-800 bg-black/20 px-5 pt-3">
+                <button type="button" onClick={() => setSelectedTab('live')} className={`rounded-t-lg border-b-2 px-4 py-2.5 text-sm font-semibold ${selectedTab === 'live' ? 'border-purple-500 text-white' : 'border-transparent text-neutral-500 hover:text-neutral-300'}`}><Monitor className="mr-2 inline h-4 w-4" />Live Details</button>
+                <button type="button" onClick={() => setSelectedTab('website')} className={`rounded-t-lg border-b-2 px-4 py-2.5 text-sm font-semibold ${selectedTab === 'website' ? 'border-purple-500 text-white' : 'border-transparent text-neutral-500 hover:text-neutral-300'}`}><Globe className="mr-2 inline h-4 w-4" />Website Editor</button>
+              </div>
+              {selectedTab === 'live' ? <div className="p-5 flex-1 flex flex-col gap-6">
                 {!isCafeOnline(cafe) && (
                   <div className="flex items-start gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-rose-200">
                     <WifiOff className="w-4 h-4 mt-0.5 shrink-0 text-rose-400" />
@@ -466,7 +472,10 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
                     </div>
                   </div>
                 )}
-              </div>
+              </div> : <WebsiteProfileEditor cafe={cafe} onSaved={(metadata, configurations) => {
+                setSelectedCafe((current) => current?.cafe_id === cafe.cafe_id ? { ...current, cafe_details: metadata as CafePublicDetails, configurations: { ...current.configurations, ...configurations } } : current);
+                void fetchLiveData();
+              }} />}
             </div>
           ))}
             </div>
@@ -480,3 +489,110 @@ export const CafeLiveDashboard: React.FC<CafeLiveDashboardProps> = ({ onRequestD
     </section>
   );
 };
+
+const WEBSITE_SECTIONS = [
+  ['about', 'About'], ['gallery', 'Gallery'], ['amenities', 'Amenities'], ['games', 'Games'],
+  ['food', 'Food menu'], ['pricing', 'Pricing plans'], ['happyHours', 'Happy-hour pricing'], ['hours', 'Opening hours'],
+  ['membership', 'Membership'], ['location', 'Location'], ['contact', 'Contact details'],
+] as const;
+
+function WebsiteProfileEditor({ cafe, onSaved }: {
+  cafe: CafeLiveStatus;
+  onSaved: (metadata: Record<string, any>, configurations: Record<string, any>) => void;
+}) {
+  const details = cafe.cafe_details || {};
+  const config = cafe.configurations || { devices: [], pricing: [], happyHours: [], happyHoursPricing: [] };
+  const [metadata, setMetadata] = useState<Record<string, any>>(() => ({
+    ...details,
+    about: details.about ?? details.description ?? '',
+    description: details.description ?? details.about ?? '',
+    tagline: details.tagline ?? '', image: details.image ?? '', address: details.address ?? '', city: details.city ?? '',
+    state: details.state ?? '', phone: details.phone ?? '', maps: details.maps ?? '', hours: details.hours ?? '',
+    websiteEnabled: details.websiteEnabled !== false,
+    websiteVisibility: Object.fromEntries(WEBSITE_SECTIONS.map(([key]) => [key, details.websiteVisibility?.[key] !== false])),
+  }));
+  const [jsonValues, setJsonValues] = useState<Record<string, string>>(() => ({
+    gallery: JSON.stringify(details.gallery ?? details.galleryImages ?? [], null, 2),
+    amenities: JSON.stringify(details.amenities ?? details.facilities ?? [], null, 2),
+    games: JSON.stringify(details.games ?? details.gameCatalog ?? [], null, 2),
+    foodItems: JSON.stringify(config.foodItems ?? details.foodItems ?? [], null, 2),
+    pricing: JSON.stringify(config.pricing ?? [], null, 2),
+    happyHours: JSON.stringify(config.happyHours ?? [], null, 2),
+    happyHoursPricing: JSON.stringify(config.happyHoursPricing ?? [], null, 2),
+    membershipPlans: JSON.stringify(details.membershipPlans ?? [], null, 2),
+  }));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const setField = (key: string, value: string) => setMetadata((current) => ({ ...current, [key]: value, ...(key === 'about' ? { description: value } : {}) }));
+  const jsonField = (key: string, label: string, hint: string) => (
+    <label key={key} className="block">
+      <span className="mb-1.5 block text-xs font-semibold text-neutral-300">{label}</span>
+      <textarea value={jsonValues[key] || '[]'} onChange={(event) => setJsonValues((current) => ({ ...current, [key]: event.target.value }))} rows={key === 'membershipPlans' ? 8 : 5} spellCheck={false} className="w-full resize-y rounded-lg border border-neutral-800 bg-black px-3 py-2 font-mono text-xs text-neutral-200 outline-none focus:border-purple-500" />
+      <span className="mt-1 block text-[10px] text-neutral-500">{hint}</span>
+    </label>
+  );
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setMessage(''); setError('');
+    try {
+      const parsed: Record<string, any> = {};
+      for (const key of Object.keys(jsonValues)) {
+        try { parsed[key] = JSON.parse(jsonValues[key] || '[]'); }
+        catch { throw new Error(`${key} must be valid JSON.`); }
+        if (!Array.isArray(parsed[key])) throw new Error(`${key} must be a JSON array.`);
+      }
+      const nextMetadata = { ...metadata, gallery: parsed.gallery, amenities: parsed.amenities, games: parsed.games, foodItems: parsed.foodItems, membershipPlans: parsed.membershipPlans };
+      const nextConfigurations = { ...config, pricing: parsed.pricing, happyHours: parsed.happyHours, happyHoursPricing: parsed.happyHoursPricing, foodItems: parsed.foodItems };
+      const token = localStorage.getItem('admin_token');
+      const response = await fetch(`/api/admin/cafes/${cafe.cafe_id}/website-profile`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ metadata: nextMetadata, configurations: nextConfigurations }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not save website profile.');
+      setMessage('Saved. Website changes are now available on the customer site.');
+      onSaved(nextMetadata, nextConfigurations);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save website profile.');
+    } finally { setSaving(false); }
+  };
+  const inputClass = 'w-full rounded-lg border border-neutral-800 bg-black px-3 py-2 text-sm text-white outline-none focus:border-purple-500';
+  return (
+    <form onSubmit={save} className="space-y-6 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-black p-4">
+        <div className="flex items-center gap-3"><span className={`flex size-9 items-center justify-center rounded-lg ${metadata.websiteEnabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-neutral-800 text-neutral-500'}`}>{metadata.websiteEnabled ? <Eye className="size-4" /> : <EyeOff className="size-4" />}</span><div><p className="text-sm font-semibold text-white">Customer website</p><p className="mt-0.5 text-xs text-neutral-500">Turn off to remove this café from the public directory.</p></div></div>
+        <button type="button" role="switch" aria-checked={metadata.websiteEnabled} onClick={() => setMetadata((current) => ({ ...current, websiteEnabled: !current.websiteEnabled }))} className={`relative h-7 w-12 rounded-full transition-colors ${metadata.websiteEnabled ? 'bg-emerald-600' : 'bg-neutral-700'}`}><span className={`absolute top-1 size-5 rounded-full bg-white transition-transform ${metadata.websiteEnabled ? 'translate-x-6' : 'translate-x-1'}`} /></button>
+      </div>
+      <div>
+        <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-neutral-400">Website sections</h4>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {WEBSITE_SECTIONS.map(([key, label]) => <label key={key} className="flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-800 bg-black px-3 py-2.5 text-xs text-neutral-300"><input type="checkbox" checked={metadata.websiteVisibility[key] !== false} onChange={(event) => setMetadata((current) => ({ ...current, websiteVisibility: { ...current.websiteVisibility, [key]: event.target.checked } }))} className="accent-purple-500" />{label}</label>)}
+        </div>
+      </div>
+      <div>
+        <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-neutral-400">Café profile</h4>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {([['tagline', 'Tagline'], ['image', 'Main image URL'], ['address', 'Street address'], ['city', 'City'], ['state', 'State'], ['phone', 'Contact phone / WhatsApp'], ['maps', 'Map URL'], ['hours', 'Opening hours']] as const).map(([key, label]) => <label key={key} className="block"><span className="mb-1.5 block text-xs font-semibold text-neutral-300">{label}</span><input value={metadata[key] || ''} onChange={(event) => setField(key, event.target.value)} className={inputClass} /></label>)}
+          <label className="block sm:col-span-2"><span className="mb-1.5 block text-xs font-semibold text-neutral-300">About / description</span><textarea rows={4} value={metadata.about || ''} onChange={(event) => setField('about', event.target.value)} className={inputClass} /></label>
+        </div>
+      </div>
+      <div>
+        <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-neutral-400">Customer-site content and pricing</h4>
+        <p className="mb-3 text-xs text-neutral-500">Edit each list as JSON. Keep the existing object fields when changing prices so the POS and website retain their data format.</p>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {jsonField('gallery', 'Gallery image URLs', 'Example: ["https://…/photo.jpg"]')}
+          {jsonField('amenities', 'Amenities', 'Text list or objects with name/label.')}
+          {jsonField('games', 'Games catalog', 'Text list or objects with name and platform.')}
+          {jsonField('foodItems', 'Food menu and prices', 'Items can include name, category, and price.')}
+          {jsonField('pricing', 'Gaming prices', 'Preserve category, duration, price, person_count and websiteVisible fields.')}
+          {jsonField('happyHours', 'Happy-hour schedule', 'Preserve category, start_time, end_time and enabled fields.')}
+          {jsonField('happyHoursPricing', 'Happy-hour prices', 'Preserve category, duration, price, person_count and websiteVisible fields.')}
+          {jsonField('membershipPlans', 'Membership plans', 'Preserve name, category, membershipPrice, duration, validity, benefits and notice.')}
+        </div>
+      </div>
+      {error && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{error}</p>}
+      {message && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">{message}</p>}
+      <div className="sticky bottom-0 flex justify-end border-t border-neutral-800 bg-neutral-900/95 py-3 backdrop-blur"><button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-purple-500 disabled:cursor-wait disabled:opacity-60"><Save className="size-4" />{saving ? 'Saving…' : 'Save website changes'}</button></div>
+    </form>
+  );
+}

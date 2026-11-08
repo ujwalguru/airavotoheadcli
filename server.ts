@@ -20,7 +20,7 @@ import cookieParser from 'cookie-parser';
 import jwt from 'jsonwebtoken';
 import { createServer as createViteServer } from 'vite';
 import {
-  initDatabase,
+  initDatabase, saveCafeWebsiteOverrides,
   getAllCafes,
   getCafeById,
   createCafe,
@@ -436,6 +436,73 @@ app.get('/api/admin/live-status', requireAdminAuth, async (_req: Request, res: R
     res.json({ success: true, liveStatus: adminLiveStatus });
   } catch (err) {
     res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+app.put('/api/admin/cafes/:id/website-profile', requireAdminAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) { res.status(400).json({ success: false, message: 'Invalid café ID.' }); return; }
+    const listing = (await getLiveStatus()).find((item: any) => Number(item.cafe_id) === id);
+    if (!listing?.cafe_slug) { res.status(404).json({ success: false, message: 'Café not found.' }); return; }
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const source = body.metadata && typeof body.metadata === 'object' ? body.metadata : {};
+    const current = listing.cafe_details || {};
+    const textFields = ['about', 'description', 'tagline', 'image', 'address', 'city', 'state', 'phone', 'maps', 'hours'];
+    const metadata: Record<string, unknown> = {};
+    for (const key of textFields) {
+      if (source[key] === undefined) continue;
+      if (typeof source[key] !== 'string' || source[key].length > 10_000) { res.status(400).json({ success: false, message: `Invalid ${key} value.` }); return; }
+      metadata[key] = source[key].trim();
+    }
+    if (source.websiteEnabled !== undefined) {
+      if (typeof source.websiteEnabled !== 'boolean') { res.status(400).json({ success: false, message: 'websiteEnabled must be a boolean.' }); return; }
+      metadata.websiteEnabled = source.websiteEnabled;
+    }
+    if (source.websiteVisibility !== undefined) {
+      if (!source.websiteVisibility || typeof source.websiteVisibility !== 'object' || Array.isArray(source.websiteVisibility)) { res.status(400).json({ success: false, message: 'websiteVisibility must be an object of boolean section controls.' }); return; }
+      const allowedSections = ['about', 'gallery', 'amenities', 'games', 'food', 'pricing', 'happyHours', 'hours', 'membership', 'location', 'contact'];
+      const visibility: Record<string, boolean> = { ...(current.websiteVisibility || {}) };
+      for (const key of allowedSections) if (source.websiteVisibility[key] !== undefined) {
+        if (typeof source.websiteVisibility[key] !== 'boolean') { res.status(400).json({ success: false, message: `websiteVisibility.${key} must be a boolean.` }); return; }
+        visibility[key] = source.websiteVisibility[key];
+      }
+      metadata.websiteVisibility = visibility;
+    }
+    for (const [key, maxItems] of [['gallery', 30], ['amenities', 100], ['games', 300], ['foodItems', 300]] as const) {
+      if (source[key] === undefined) continue;
+      if (!Array.isArray(source[key]) || source[key].length > maxItems) { res.status(400).json({ success: false, message: `${key} must be an array with at most ${maxItems} entries.` }); return; }
+      metadata[key] = source[key];
+    }
+    const isSafeWebUrl = (value: unknown) => {
+      if (typeof value !== 'string' || !value.trim()) return true;
+      try { return ['http:', 'https:'].includes(new URL(value.trim()).protocol); } catch { return false; }
+    };
+    if (!isSafeWebUrl(metadata.image) || !isSafeWebUrl(metadata.maps)) { res.status(400).json({ success: false, message: 'Image and map links must use valid http:// or https:// URLs.' }); return; }
+    if (Array.isArray(metadata.gallery) && !metadata.gallery.every((image: any) => isSafeWebUrl(typeof image === 'string' ? image : image?.imageUrl ?? image?.image_url ?? image?.url))) {
+      res.status(400).json({ success: false, message: 'Gallery links must use valid http:// or https:// URLs.' }); return;
+    }
+    if (source.membershipPlans !== undefined) {
+      const validatedPlans = validatePublicMembershipPlans(source.membershipPlans);
+      if (validatedPlans.valid === false) { res.status(400).json({ success: false, message: validatedPlans.message }); return; }
+      metadata.membershipPlans = validatedPlans.plans;
+    }
+    const configSource = body.configurations && typeof body.configurations === 'object' ? body.configurations : {};
+    const configurations: Record<string, unknown> = { ...(listing.configurations || {}) };
+    for (const [key, maxItems] of [['pricing', 300], ['happyHours', 100], ['happyHoursPricing', 300], ['foodItems', 300]] as const) {
+      if (configSource[key] === undefined) continue;
+      if (!Array.isArray(configSource[key]) || configSource[key].length > maxItems) { res.status(400).json({ success: false, message: `${key} must be an array with at most ${maxItems} entries.` }); return; }
+      configurations[key] = configSource[key];
+    }
+    const overrides = { metadata, configurations };
+    const saved = await saveCafeWebsiteOverrides(String(listing.cafe_slug), overrides);
+    if (!saved) { res.status(404).json({ success: false, message: 'Café was not found while saving the website profile.' }); return; }
+    publicDirectoryCache = null;
+    addLog('info', 'Website Profile Updated', `Website profile and section visibility for café #${id} updated from Live Monitor.`);
+    res.json({ success: true, message: 'Website profile saved.', website_overrides: overrides });
+  } catch (error) {
+    console.error('Failed to save café website profile:', error);
+    res.status(500).json({ success: false, message: 'Failed to save website profile.' });
   }
 });
 
@@ -1105,7 +1172,7 @@ app.get('/api/directory', rateLimit('directory', 120, 60 * 1000), async (_req: R
       return;
     }
     const liveStatuses = await getLiveStatus();
-    const result = liveStatuses.map((listing: any) => ({
+    const result = liveStatuses.filter((listing: any) => listing.cafe_details?.websiteEnabled !== false).map((listing: any) => ({
       slug: listing.cafe_slug,
       last_updated: listing.last_heartbeat ? new Date(listing.last_heartbeat).getTime() : 0,
       is_stale: !listing.is_online,
@@ -1135,14 +1202,8 @@ app.get('/api/directory', rateLimit('directory', 120, 60 * 1000), async (_req: R
  * Public address for player-facing site (Single listing)
  */
 app.get('/api/directory/:slug', rateLimit('directory-detail', 60, 60 * 1000), async (req: Request, res: Response): Promise<void> => {
-  const listing = directoryData[req.params.slug];
-  if (listing) {
-    res.json({ success: true, data: formatListing(listing) });
-    return;
-  }
-
   try {
-    const persisted = (await getLiveStatus()).find((item: any) => item.cafe_slug === req.params.slug);
+    const persisted = (await getLiveStatus()).find((item: any) => item.cafe_slug === req.params.slug && item.cafe_details?.websiteEnabled !== false);
     if (persisted) {
       res.json({
         success: true,
@@ -1163,6 +1224,11 @@ app.get('/api/directory/:slug', rateLimit('directory-detail', 60, 60 * 1000), as
     console.error('Error loading persisted directory listing:', err);
   }
 
+  const listing = directoryData[req.params.slug];
+  if (listing) {
+    res.json({ success: true, data: formatListing(listing) });
+    return;
+  }
   res.status(404).json({ success: false, message: 'Listing not found' });
 });
 
